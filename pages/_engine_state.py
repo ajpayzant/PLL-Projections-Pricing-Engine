@@ -1,0 +1,408 @@
+"""
+Shared engine state — loaded once per session via st.cache_resource.
+"""
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+from datetime import date, timezone
+from pathlib import Path
+from typing import Dict, List, Optional
+
+import streamlit as st
+
+# ── Path: both repo root AND pages/ must be on sys.path ──────────────────
+_PAGES_DIR = Path(__file__).resolve().parent
+_ROOT      = _PAGES_DIR.parent
+for _p in [str(_ROOT), str(_PAGES_DIR)]:
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+from projection_engine_v3 import (   # noqa: E402
+    ProjectionEngine,
+    ProjectionResult,
+    TeamProjection,
+    PlayerProjection,
+    PricingEngine,
+    _norm_pos,
+    LG_GOALS, LG_SHOTS, LG_SHOT_PCT, LG_SOG_RATE,
+    LG_FO_PCT, LG_SAVE_PCT, LG_2PT_RATE,
+)
+
+# ── DB path ───────────────────────────────────────────────────────────────
+DB_PATH = os.getenv(
+    "PLL_DB_PATH",
+    str(_ROOT / "data" / "analytics_database" / "pll_warehouse.duckdb"),
+)
+
+
+# ── Bootstrap DB from parquets if missing ────────────────────────────────
+def _ensure_db() -> None:
+    if Path(DB_PATH).exists():
+        return
+    bootstrap = _ROOT / "scripts" / "bootstrap_db.py"
+    if not bootstrap.exists():
+        st.error(
+            "Database not found and bootstrap script is missing. "
+            "Ensure scripts/bootstrap_db.py is in the repository."
+        )
+        st.stop()
+    with st.spinner("Building database from data files — first load only, ~10 seconds…"):
+        result = subprocess.run(
+            [sys.executable, str(bootstrap)],
+            capture_output=True, text=True,
+        )
+    if result.returncode != 0:
+        st.error(
+            f"Database bootstrap failed.\n\n```\n{result.stderr[-2000:]}\n```\n\n"
+            "Run the GitHub Action (Update PLL Data Warehouse) to populate data/."
+        )
+        st.stop()
+
+
+_ensure_db()
+
+
+# ── Engine cache ──────────────────────────────────────────────────────────
+@st.cache_resource(show_spinner="Loading projection engine…")
+def get_engine() -> ProjectionEngine:
+    engine = ProjectionEngine(db_path=DB_PATH)
+    engine.load()
+    engine.fit(run_backtest=False)
+    return engine
+
+
+# ── Session state ─────────────────────────────────────────────────────────
+def init_session() -> None:
+    defaults: Dict = {
+        "selected_game":    None,
+        "last_result":      None,
+        # depth_charts: {team_id: {player_id: {active, usage_multiplier, is_starter,
+        #   rating_overrides: {rating_key: float}}}}
+        "depth_charts":     {},
+        # team_rating_overrides: {team_id: {rating_key: float}}
+        "team_rating_overrides": {},
+        "line_overrides":   {},
+        "hold_pct":         0.045,
+    }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+
+
+# ── Depth chart helpers ───────────────────────────────────────────────────
+def get_depth_chart(team_id: str) -> Dict:
+    if team_id not in st.session_state.depth_charts:
+        st.session_state.depth_charts[team_id] = {}
+    return st.session_state.depth_charts[team_id]
+
+
+def set_player_override(team_id: str, player_id: str, key: str, value) -> None:
+    dc = get_depth_chart(team_id)
+    if player_id not in dc:
+        dc[player_id] = {}
+    dc[player_id][key] = value
+
+
+def set_player_rating(team_id: str, player_id: str, rating_key: str, value: float) -> None:
+    """Override a specific model rating for a player (e.g. share_goals_ewm)."""
+    dc = get_depth_chart(team_id)
+    if player_id not in dc:
+        dc[player_id] = {}
+    if "rating_overrides" not in dc[player_id]:
+        dc[player_id]["rating_overrides"] = {}
+    dc[player_id]["rating_overrides"][rating_key] = value
+
+
+def build_overrides() -> Dict:
+    """Build full override dict for ProjectionEngine.project()."""
+    merged: Dict = {}
+    for team_dc in st.session_state.depth_charts.values():
+        for pid, settings in team_dc.items():
+            entry: Dict = {}
+            if "active" in settings:
+                entry["active"] = settings["active"]
+            if "usage_multiplier" in settings:
+                entry["usage_multiplier"] = settings["usage_multiplier"]
+            if "is_starter" in settings:
+                entry["is_starter"] = settings["is_starter"]
+            # Flatten rating_overrides into the override dict so the engine picks them up
+            for rk, rv in settings.get("rating_overrides", {}).items():
+                entry[rk] = rv
+            if entry:
+                merged[pid] = entry
+    return merged
+
+
+def build_active_players() -> Dict:
+    out: Dict = {}
+    for team_dc in st.session_state.depth_charts.values():
+        for pid, settings in team_dc.items():
+            if "active" in settings:
+                out[pid] = settings["active"]
+    return out
+
+
+# ── Team rating override helpers ──────────────────────────────────────────
+def get_team_rating_overrides(team_id: str) -> Dict:
+    return st.session_state.team_rating_overrides.get(team_id, {})
+
+
+def set_team_rating_override(team_id: str, key: str, value: float) -> None:
+    if team_id not in st.session_state.team_rating_overrides:
+        st.session_state.team_rating_overrides[team_id] = {}
+    st.session_state.team_rating_overrides[team_id][key] = value
+
+
+def build_team_adjustments() -> Dict:
+    """
+    Convert team rating overrides into the team_adjustments dict the engine expects.
+
+    The engine's team_adj accepts {"off_mult": float, "def_mult_opp": float}.
+    We compute these from the user's rating nudges so they map to real model inputs.
+
+    Specifically:
+      - goals_ewm nudge  → off_mult = nudged_goals / original_goals
+      - save_pct nudge   → changes goalie save fraction in team projection
+      - fo_pct nudge     → stored as rating_override, read directly by engine via predict()
+
+    For non-multiplicative overrides (fo_pct, save_pct, shot_pct) we inject them
+    as direct rating overrides into the team_r dict through a wrapper at project() time.
+    """
+    out: Dict = {}
+    for tid, overrides in st.session_state.team_rating_overrides.items():
+        if not overrides:
+            continue
+        out[tid] = {"off_mult": overrides.get("off_mult", 1.0),
+                    "def_mult_opp": overrides.get("def_mult_opp", 1.0)}
+    return out
+
+
+# ── Game selector helpers ─────────────────────────────────────────────────
+def sorted_upcoming(games: List[Dict]) -> List[Dict]:
+    """
+    Sort upcoming games: current season first (2026), then future seasons,
+    then any residual prior-season unknowns. Within each season sort by date.
+    """
+    import datetime as dt
+    today = dt.date.today()
+    current_year = today.year
+
+    def _sort_key(g):
+        season = int(g.get("game_number_season") or g.get("season") or 0)
+        gdate_raw = g.get("game_date", "") or ""
+        try:
+            gdate = str(gdate_raw)[:10]
+        except Exception:
+            gdate = "9999-12-31"
+        # Current season first, then by date
+        season_rank = 0 if season == current_year else (1 if season > current_year else 2)
+        return (season_rank, gdate)
+
+    return sorted(games, key=_sort_key)
+
+
+def default_game_index(games: List[Dict]) -> int:
+    """
+    Return index of the next upcoming 2026 game (first game with date >= today).
+    Falls back to 0 if nothing found.
+    """
+    import datetime as dt
+    today = dt.date.today()
+    current_year = today.year
+
+    for i, g in enumerate(games):
+        season = int(g.get("game_number_season") or
+                     _extract_season_from_game(g) or 0)
+        if season != current_year:
+            continue
+        gdate_raw = str(g.get("game_date", ""))[:10]
+        try:
+            gd = dt.date.fromisoformat(gdate_raw)
+            if gd >= today:
+                return i
+        except Exception:
+            pass
+    return 0
+
+
+def _extract_season_from_game(g: Dict) -> int:
+    """Extract season year from a game dict (handles various key names)."""
+    for key in ("season", "game_number_season"):
+        v = g.get(key)
+        if v:
+            try:
+                return int(v)
+            except Exception:
+                pass
+    gdate = str(g.get("game_date", ""))
+    if len(gdate) >= 4:
+        try:
+            return int(gdate[:4])
+        except Exception:
+            pass
+    return 0
+
+
+# ── Constants exposed for UI ──────────────────────────────────────────────
+# Team-level rating keys the UI can adjust, with display names and ranges.
+TEAM_RATING_DEFS = {
+    "goals_ewm": {
+        "label": "Scoring rate (goals/game)",
+        "help": "Team's recent average goals per game. League avg ~11.2. "
+                "Raise if offense is playing better than recent stats show; lower if key scorer is out.",
+        "min": 5.0, "max": 20.0, "step": 0.1, "fmt": "{:.1f}",
+    },
+    "shot_pct_ewm": {
+        "label": "Shooting efficiency (goals/shot)",
+        "help": "What fraction of shots become goals. League avg ~0.274. "
+                "Raise for a hot-shooting team; lower if they're in a shooting slump.",
+        "min": 0.15, "max": 0.45, "step": 0.005, "fmt": "{:.3f}",
+    },
+    "shots_ewm": {
+        "label": "Shot volume (shots/game)",
+        "help": "How many shots the team takes per game. League avg ~41. "
+                "Raise for high-tempo teams; lower if they've been conservative.",
+        "min": 25.0, "max": 60.0, "step": 0.5, "fmt": "{:.1f}",
+    },
+    "bayes_fo_pct": {
+        "label": "Faceoff win rate",
+        "help": "Career Bayesian faceoff win%. Drives possession time and shot opportunities. "
+                "League avg 0.500. If the opposing FO specialist is injured, raise this.",
+        "min": 0.25, "max": 0.75, "step": 0.01, "fmt": "{:.3f}",
+    },
+    "bayes_save_pct": {
+        "label": "Goalie save% (saves / shots faced)",
+        "help": "The starting goalie's career Bayesian save%. League avg ~0.537. "
+                "Raise if the elite starter is in net; lower if backup is starting.",
+        "min": 0.35, "max": 0.75, "step": 0.005, "fmt": "{:.3f}",
+    },
+    "goals_against_ewm": {
+        "label": "Goals allowed/game (defense quality)",
+        "help": "How many goals the team typically allows per game. League avg ~11.2. "
+                "LOWER = better defense. Lower this if their defense is stronger than stats show.",
+        "min": 5.0, "max": 20.0, "step": 0.1, "fmt": "{:.1f}",
+    },
+}
+
+# Player-level rating keys the UI can adjust.
+PLAYER_RATING_DEFS = {
+    "share_goals_ewm": {
+        "label": "Goal share",
+        "help": "This player's share of team goals (0 = none, 0.20 = 20% of all team goals). "
+                "Raise for primary scorers; lower for role players.",
+        "min": 0.0, "max": 0.50, "step": 0.01, "fmt": "{:.3f}",
+        "positions": ["A","M","D","FO","SSDM","LSM"],
+    },
+    "share_assists_ewm": {
+        "label": "Assist share",
+        "help": "Player's share of team assists. Raise for playmakers.",
+        "min": 0.0, "max": 0.50, "step": 0.01, "fmt": "{:.3f}",
+        "positions": ["A","M","D","FO","SSDM","LSM"],
+    },
+    "shot_pct_ewm": {
+        "label": "Shooting %",
+        "help": "Player's goals-per-shot rate. League avg ~0.27. "
+                "2PT specialists naturally have higher effective shot% per scoring point.",
+        "min": 0.05, "max": 0.60, "step": 0.01, "fmt": "{:.3f}",
+        "positions": ["A","M","SSDM","LSM"],
+    },
+    "two_pt_rate_ewm": {
+        "label": "2PT goal rate",
+        "help": "Fraction of this player's goals that are 2-pointers. "
+                "League avg ~7%. Specialists like Connor Kelly run 30%+.",
+        "min": 0.0, "max": 0.65, "step": 0.01, "fmt": "{:.3f}",
+        "positions": ["A","M","SSDM","LSM"],
+    },
+    "bayes_save_pct": {
+        "label": "Save %",
+        "help": "Goalie's career Bayesian save%. Drives saves projection. "
+                "League avg ~0.537. Starter vs backup matters here.",
+        "min": 0.35, "max": 0.75, "step": 0.005, "fmt": "{:.3f}",
+        "positions": ["G"],
+    },
+    "bayes_fo_pct": {
+        "label": "FO win %",
+        "help": "Player's career Bayesian faceoff win rate. 0.500 = league avg.",
+        "min": 0.25, "max": 0.75, "step": 0.01, "fmt": "{:.3f}",
+        "positions": ["FO"],
+    },
+}
+
+
+# ── Formatting ────────────────────────────────────────────────────────────
+TEAM_COLORS = {
+    "ATL": "#1d4ed8", "OUT": "#d97706", "CAN": "#dc2626", "RED": "#16a34a",
+    "WAT": "#7c3aed", "WHP": "#0891b2", "CHA": "#334155", "ARC": "#b45309",
+}
+TEAM_NAMES = {
+    "ATL": "Atlas",      "OUT": "Outlaws",    "CAN": "Cannons",
+    "RED": "Redwoods",   "WAT": "Waterdogs",  "WHP": "Whipsnakes",
+    "CHA": "Chaos",      "ARC": "Archers",
+}
+
+def team_color(tid: str) -> str:
+    return TEAM_COLORS.get(str(tid).upper(), "#475569")
+
+def team_name(tid: str) -> str:
+    return TEAM_NAMES.get(str(tid).upper(), str(tid))
+
+def fmt_prob(p: float) -> str:
+    return f"{p * 100:.1f}%"
+
+def fmt_goals(v: float) -> str:
+    return f"{v:.1f}"
+
+def fmt_odds(odds_str: str) -> str:
+    try:
+        v = int(str(odds_str).replace("+", ""))
+        cls = "odds-fav" if v < 0 else ("odds-dog" if v > 0 else "odds-even")
+    except Exception:
+        cls = "odds-even"
+    return f'<span class="{cls}">{odds_str}</span>'
+
+def card(label: str, value: str, sub: str = "") -> str:
+    sub_html = f'<div class="pll-card-sub">{sub}</div>' if sub else ""
+    return (
+        f'<div class="pll-card">'
+        f'<div class="pll-card-label">{label}</div>'
+        f'<div class="pll-card-value">{value}</div>'
+        f'{sub_html}</div>'
+    )
+
+def pos_badge(pos: str) -> str:
+    colors = {
+        "A": "#1d4ed8", "M": "#059669", "D": "#dc2626",
+        "FO": "#d97706", "SSDM": "#7c3aed", "LSM": "#0891b2", "G": "#475569",
+    }
+    c = colors.get(str(pos).upper(), "#475569")
+    return (
+        f'<span style="background:{c};color:#fff;border-radius:4px;'
+        f'padding:1px 6px;font-size:0.75rem;font-weight:700;">{pos}</span>'
+    )
+
+SHARED_CSS = """
+<style>
+  .main .block-container { padding-top:1rem; max-width:1800px; }
+  .pll-card {
+    border:1px solid rgba(148,163,184,.20); border-radius:12px;
+    padding:12px 16px;
+    background:linear-gradient(160deg,rgba(255,255,255,.04),rgba(255,255,255,.01));
+    box-shadow:0 4px 16px rgba(0,0,0,.10); margin-bottom:8px;
+  }
+  .pll-card-label { color:#94a3b8; font-size:.78rem; font-weight:600;
+    text-transform:uppercase; letter-spacing:.05em; margin-bottom:4px; }
+  .pll-card-value { font-size:1.5rem; font-weight:800; color:#f1f5f9; line-height:1.1; }
+  .pll-card-sub   { color:#94a3b8; font-size:.78rem; margin-top:3px; }
+  .odds-fav  { background:#16a34a; color:#fff; border-radius:6px;
+    padding:2px 8px; font-weight:700; font-size:.85rem; }
+  .odds-dog  { background:#2563eb; color:#fff; border-radius:6px;
+    padding:2px 8px; font-weight:700; font-size:.85rem; }
+  .odds-even { background:#475569; color:#fff; border-radius:6px;
+    padding:2px 8px; font-weight:700; font-size:.85rem; }
+  .note-text { color:#64748b; font-size:.80rem; font-style:italic; }
+  .rating-changed { background:rgba(251,191,36,.12); border-left:3px solid #fbbf24;
+    padding:2px 6px; border-radius:0 4px 4px 0; }
+</style>
+"""
