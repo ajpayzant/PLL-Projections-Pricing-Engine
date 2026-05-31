@@ -29,7 +29,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🥍 PLL Projection Engine")
+st.title("🥍 PLL Projections")
 st.markdown("##### Monte Carlo projection system for Premier Lacrosse League games")
 st.markdown("---")
 
