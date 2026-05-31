@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# Data — commit lightweight parquets and CSVs, not the binary database
+# The database is rebuilt automatically at app startup from the parquet files
+data/analytics_database/*.duckdb
+data/analytics_database/*.duckdb-wal
+data/analytics_database/*.duckdb-shm
+
+# Raw API cache — can be rebuilt by the scraper, no need to version
+data/source_data/
+
+# Quality check run logs — ephemeral, not needed in repo
+data/quality_checks/
+
+# Standardized intermediate tables — rebuilt from source by build_warehouse.py
+data/standardized_data/
+
+# Projection outputs — user-generated, not source code
+projection_*.json
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Streamlit local config (keep .streamlit/config.toml though)
+.streamlit/secrets.toml
+
+# Env files with secrets
+.env
+.env.local
