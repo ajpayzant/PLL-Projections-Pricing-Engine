@@ -1,0 +1,12 @@
+table,rows,status
+clean.game_manifest,168,ok
+clean.team_game_stats,336,ok
+clean.player_game_stats,6071,ok
+marts.team_season_stats,40,ok
+marts.team_defense_season_stats,40,ok
+marts.team_game_opponent_context,336,ok
+marts.team_game_possession_quality,336,ok
+marts.player_ranking_profiles,2053,ok
+marts.team_style_profiles,48,ok
+qc.game_possession_quality,168,ok
+qc.defensive_opponent_build_quality,9,ok
