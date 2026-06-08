@@ -1,4 +1,4 @@
-"""Page 1 — Game Projections"""
+"""Page 1 -- Game Projections"""
 from __future__ import annotations
 
 import sys
@@ -34,7 +34,7 @@ st.markdown(SHARED_CSS, unsafe_allow_html=True)
 engine   = get_engine()
 raw_games = engine.upcoming_games()
 
-# ── Attach season to each game dict (for sorting) ─────────────────────────
+# -- Attach season to each game dict (for sorting) -------------------------
 def _season_from_game(g: dict) -> int:
     gdate = str(g.get("game_date", ""))
     try:
@@ -57,10 +57,10 @@ if not upcoming:
 today = dt.date.today()
 current_year = today.year
 
-# ── Sidebar ───────────────────────────────────────────────────────────────
+# -- Sidebar ---------------------------------------------------------------
 with st.sidebar:
 
-    # ── Game selector ─────────────────────────────────────────────────────
+    # -- Game selector -----------------------------------------------------
     st.markdown("### Select Game")
 
     # Group by season for display
@@ -132,12 +132,12 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # ── Team rating adjustments ───────────────────────────────────────────
+    # -- Team rating adjustments -------------------------------------------
     st.markdown("### Team Rating Adjustments")
     st.markdown(
         '<span class="note-text">'
         "Adjust the model's actual input ratings. Each slider shows the model's "
-        "current value — move it to reflect information the stats don't capture "
+        "current value -- move it to reflect information the stats don't capture "
         "(injury, travel, matchup advantage). The projection recalculates "
         "automatically when you run it."
         "</span>",
@@ -235,7 +235,7 @@ with st.sidebar:
     # Update Projection button (also reruns when clicked)
     render_update_projection_btn(engine, key="p1")
 
-# ── Run projection ────────────────────────────────────────────────────────
+# -- Run projection --------------------------------------------------------
 team_rating_overrides = {}
 for tid in [home_id, away_id]:
     ov = get_team_rating_overrides(tid)
@@ -264,7 +264,7 @@ ap = result.away_proj
 gs = result.game_sim
 gm = result.game_market
 
-# ── Game header ───────────────────────────────────────────────────────────
+# -- Game header -----------------------------------------------------------
 st.markdown(
     f'<h2 style="text-align:center;margin-bottom:2px;">'
     f'<span style="color:{team_color(away_id)}">{away_nm}</span>'
@@ -278,7 +278,7 @@ st.markdown(
 )
 st.markdown("---")
 
-# ── Win probability row ───────────────────────────────────────────────────
+# -- Win probability row ---------------------------------------------------
 # home gets + when underdog (home_displayed_spd = -spread_home)
 # away lays - when favored (away_spd_display = spread_home)
 home_spd_display = -gm.spread_home   # home gets + when underdog
@@ -321,7 +321,7 @@ fig_wp.update_layout(
 st.plotly_chart(fig_wp, use_container_width=True)
 st.markdown("---")
 
-# ── Team stats table ──────────────────────────────────────────────────────
+# -- Team stats table ------------------------------------------------------
 st.markdown("### Team Projections")
 
 # Show any active adjustments as a note
@@ -354,7 +354,7 @@ proj_df = pd.DataFrame([
 st.dataframe(proj_df, use_container_width=True)
 st.markdown("---")
 
-# ── Sim distributions ─────────────────────────────────────────────────────
+# -- Sim distributions -----------------------------------------------------
 st.markdown("### Simulation Distributions  (20,000 sims)")
 t1, t2, t3 = st.tabs(["Score Total", "Margin", "Goals by Team"])
 
@@ -405,7 +405,7 @@ with t3:
 
 st.markdown("---")
 
-# ── Player summary ────────────────────────────────────────────────────────
+# -- Player summary --------------------------------------------------------
 st.markdown("### Player Projection Summary")
 st.markdown('<span class="note-text">Full prop lines → Player Props page. '
             'Roster adjustments → Depth Charts page.</span>', unsafe_allow_html=True)
@@ -420,8 +420,8 @@ for nm, players in [(away_nm, result.away_players), (home_nm, result.home_player
          "Proj G": round(p.proj_goals,2), "Proj A": round(p.proj_assists,2),
          "Proj Pts": round(p.proj_points,2), "Proj Sh": round(p.proj_shots,1),
          "Proj SOG": round(p.proj_sog,1),
-         "2PT Rate": f"{p.proj_2pt_goals/max(p.proj_goals,0.01):.0%}" if p.proj_goals > 0.05 else "—",
-         "Proj SV": round(p.proj_saves,1) if p.position == "G" else "—"}
+         "2PT Rate": f"{p.proj_2pt_goals/max(p.proj_goals,0.01):.0%}" if p.proj_goals > 0.05 else "--",
+         "Proj SV": round(p.proj_saves,1) if p.position == "G" else "--"}
         for p in sorted(active, key=lambda x: x.proj_points, reverse=True)[:14]
     ]
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)

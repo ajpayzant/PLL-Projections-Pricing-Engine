@@ -1,4 +1,4 @@
-"""Page 2 — Player Props"""
+"""Page 2 -- Player Props"""
 from __future__ import annotations
 
 import sys
@@ -43,7 +43,7 @@ pricing  = PricingEngine(hold_pct=hold_pct)
 st.title("👤 Player Prop Markets")
 st.markdown(
     f"**{away_nm} @ {home_nm}** · "
-    f"Game {game.get('game_number','—')} · "
+    f"Game {game.get('game_number','--')} · "
     f"{str(game.get('game_date',''))[:10]}"
 )
 
@@ -58,7 +58,7 @@ GOALIE_STATS = ["saves"]
 FO_STATS     = ["faceoff_wins"]
 MILE_DEFS    = {"goals": [1, 2, 3], "assists": [1, 2], "saves": [10, 12, 14]}
 
-# ── Sidebar ───────────────────────────────────────────────────────────────
+# -- Sidebar ---------------------------------------------------------------
 with st.sidebar:
     st.markdown("### Filters")
     show_team = st.radio("Team", ["Both", away_nm, home_nm], key="prop_team")
@@ -100,7 +100,7 @@ new_hold_pct = (hold_num if abs(hold_num - hold_sl) > 0.1 else hold_sl) / 100.0
 st.session_state.hold_pct = new_hold_pct
 pricing = PricingEngine(hold_pct=new_hold_pct)
 
-# ── Collect sims ──────────────────────────────────────────────────────────
+# -- Collect sims ----------------------------------------------------------
 all_projs = {p.player_id: p for p in result.home_players + result.away_players}
 markets   = result.player_markets
 
@@ -150,7 +150,7 @@ if not sims_filtered:
 st.markdown(f"**{len(sims_filtered)} players shown** · hold: {new_hold_pct*100:.1f}%")
 st.markdown("---")
 
-# ── Player prop cards ─────────────────────────────────────────────────────
+# -- Player prop cards -----------------------------------------------------
 for ps in sims_filtered:
     pid  = ps.player_id
     pm   = markets.get(pid, {})
@@ -163,7 +163,7 @@ for ps in sims_filtered:
     pos = proj.position
     tid = proj.team_id
 
-    # ── Get primary stat line for collapsed summary row ──────────────────
+    # -- Get primary stat line for collapsed summary row ------------------
     if pos == "G":
         pri_stat, pri_proj = "saves", proj.proj_saves
     elif pos == "FO":
@@ -176,8 +176,8 @@ for ps in sims_filtered:
     if pri_market:
         line_val = pri_market.get("line")
         line_str = f"{line_val:.1f}" if isinstance(line_val, (int, float)) else "?"
-        over_str = pri_market.get("over_odds", "—")
-        under_str = pri_market.get("under_odds", "—")
+        over_str = pri_market.get("over_odds", "--")
+        under_str = pri_market.get("under_odds", "--")
         expander_label = (
             f"{nm}  ·  {pos}  ·  {team_name(tid)}  |  "
             f"Proj: {pri_proj:.2f}  |  Line: {line_str}  |  "
@@ -225,7 +225,7 @@ for ps in sims_filtered:
                 )
                 st.plotly_chart(fig, use_container_width=True)
 
-        # ── Model line table ──────────────────────────────────────────────
+        # -- Model line table ----------------------------------------------
         stat_list = GOALIE_STATS if pos == "G" else (FO_STATS if pos == "FO" else FIELD_STATS)
         rows = []
         for stat in stat_list:
@@ -254,14 +254,14 @@ for ps in sims_filtered:
             st.markdown("**Model Lines**")
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
-        # ── Alternate line pricing ─────────────────────────────────────────
+        # -- Alternate line pricing -----------------------------------------
         if show_alt:
             for stat in stat_list:
                 if stat not in ps.stat_distributions:
                     continue
                 dist = ps.stat_distributions[stat]
                 proj_v = pv.get(stat, 0)
-                st.markdown(f"**Alternate Lines — {STAT_LABELS.get(stat, stat)}**")
+                st.markdown(f"**Alternate Lines -- {STAT_LABELS.get(stat, stat)}**")
 
                 # Build a compact ladder around the main model line.
                 # Lines are x.5 only (0.5, 1.5, 2.5...) so integer outcomes cannot push.
@@ -285,7 +285,7 @@ for ps in sims_filtered:
                 if alt_rows:
                     st.dataframe(pd.DataFrame(alt_rows), use_container_width=True, hide_index=True)
 
-        # ── Milestone props ────────────────────────────────────────────────
+        # -- Milestone props ------------------------------------------------
         if show_miles:
             for stat, levels in MILE_DEFS.items():
                 if stat not in ps.stat_distributions:
@@ -301,7 +301,7 @@ for ps in sims_filtered:
                         "No odds":   ml_m.under_odds,
                     })
                 if m_rows:
-                    st.markdown(f"**Milestones — {STAT_LABELS.get(stat,stat)}**")
+                    st.markdown(f"**Milestones -- {STAT_LABELS.get(stat,stat)}**")
                     st.dataframe(pd.DataFrame(m_rows), use_container_width=True, hide_index=True)
 
 st.markdown("---")

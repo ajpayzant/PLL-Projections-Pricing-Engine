@@ -89,7 +89,7 @@ N_SIMS: int = 20_000
 # Team goal std dev (measured: ~3.1/game per team)
 TEAM_GOAL_SIGMA_BASE: float = 3.1
 
-# Player zero-inflation rates — empirically measured from all seasons.
+# Player zero-inflation rates -- empirically measured from all seasons.
 # These are the PRIOR defaults; the engine also computes per-player
 # zero_rate_goals from career history via expanding mean (overrides these
 # for players with sufficient data). Audit verified actual rates:
@@ -134,7 +134,7 @@ POS_DEFAULTS: Dict[str, Dict[str, float]] = {
              "gb_pg": 1.85, "cto_pg": 0.25, "to_pg": 0.39, "touches_pg": 14.1},
 }
 
-# Position caps — set above observed 99th percentile to block physically
+# Position caps -- set above observed 99th percentile to block physically
 # impossible projections (e.g. a goalie projected at 4 goals) without
 # cutting legitimate tail events. Observed maxima from audit:
 #   G: goals=1, shots=2 | FO: goals=3 | D: goals=2, shots=4
@@ -923,7 +923,7 @@ class RatingBuilder:
             "touches": LG_TOUCHES,
         }
 
-    # ── Team ratings ──────────────────────────────────────────────────────
+    # -- Team ratings ------------------------------------------------------
 
     def build_team_ratings(self) -> pd.DataFrame:
         chunks = []
@@ -959,7 +959,7 @@ class RatingBuilder:
 
         blocks = []
 
-        # ── Offensive stats
+        # -- Offensive stats
         blocks.append(_stat_block(df["goals"],         lg["goals"], HL_GOALS, "goals"))
         blocks.append(_stat_block(df["shots"],         lg["shots"], HL_SHOTS, "shots"))
         blocks.append(_stat_block(df["shots_on_goal"], lg["sog"],   HL_SHOTS, "sog"))
@@ -977,7 +977,7 @@ class RatingBuilder:
         sog_rate = _safe_div_s(df["shots_on_goal"].fillna(0), df["shots"].clip(lower=1))
         blocks.append(_stat_block(sog_rate, LG_SOG_RATE, HL_SHOTS, "sog_rate"))
 
-        # ── Defensive stats
+        # -- Defensive stats
         blocks.append(_stat_block(df["goals_against"].fillna(lg["goals"]), lg["goals"], HL_GOALS, "goals_against"))
         blocks.append(_stat_block(df["shots_faced"],   lg["shots_faced"], HL_SHOTS, "shots_faced"))
 
@@ -985,7 +985,7 @@ class RatingBuilder:
         blocks.append(_stat_block(sp_clean, LG_SAVE_PCT, HL_SHOTS, "save_pct"))
         blocks.append(_stat_block(df["saves"].fillna(lg["saves"]), lg["saves"], HL_SHOTS, "saves"))
 
-        # ── Possession chain
+        # -- Possession chain
         top = df["time_in_possession"].fillna(0)
         top_valid = top.where(top > 0).ffill().fillna(lg["top"])
         blocks.append(_stat_block(top_valid, lg["top"], HL_POSS, "top_sec"))
@@ -1000,12 +1000,12 @@ class RatingBuilder:
         blocks.append(_stat_block(df["caused_turnovers"].fillna(5.0), 5.0, HL_TO, "caused_turnovers"))
         blocks.append(_stat_block(df["ground_balls"].fillna(lg["gb"]), lg["gb"], HL_SHOTS, "ground_balls"))
 
-        # ── FO (highest autocorrelation = longest half-life)
+        # -- FO (highest autocorrelation = longest half-life)
         blocks.append(_stat_block(df["fo_pct_clean"], LG_FO_PCT, HL_FO, "fo_pct"))
         blocks.append(_stat_block(df["faceoffs_won"].fillna(LG_FOS_PER_GAME * 0.5),
                                   LG_FOS_PER_GAME * 0.5, HL_FO, "fo_wins"))
 
-        # ── Bayesian career rates (cumulative, most conservative estimate)
+        # -- Bayesian career rates (cumulative, most conservative estimate)
         fo_w = df["faceoffs_won"].fillna(0).shift(1).cumsum().fillna(0)
         fo_t = df["fo_denom"].shift(1).cumsum().fillna(0)
         df["bayes_fo_pct"] = [_bayesian_rate(w, t, 2, 2) for w, t in zip(fo_w, fo_t)]
@@ -1018,7 +1018,7 @@ class RatingBuilder:
         g_d = df["shots"].fillna(0).shift(1).cumsum().fillna(0)
         df["bayes_shot_pct"] = [_bayesian_rate(g, s, 4, 10) for g, s in zip(g_n, g_d)]
 
-        # ── Context
+        # -- Context
         df["games_played"] = np.arange(len(df))
         df["season_weight"] = df["season"].apply(lambda s: _season_w(int(s), self._current_season))
 
@@ -1027,7 +1027,7 @@ class RatingBuilder:
         result = pd.concat([df.reset_index(drop=True), extra.reset_index(drop=True)], axis=1)
         return result
 
-    # ── Player ratings ────────────────────────────────────────────────────
+    # -- Player ratings ----------------------------------------------------
 
     def build_player_ratings(self) -> pd.DataFrame:
         if self.pg.empty:
@@ -1136,7 +1136,7 @@ class RatingBuilder:
         result = pd.concat([df.reset_index(drop=True), extra.reset_index(drop=True)], axis=1)
         return result
 
-    # ── Retrieval helpers ─────────────────────────────────────────────────
+    # -- Retrieval helpers -------------------------------------------------
 
     def get_team_rating(self, team_id: str, as_of_date=None) -> Dict:
         if self._tr is None:
@@ -1213,19 +1213,19 @@ class TeamModel:
     """
     Possession-chain projection model.
 
-    Stage 1 — FO rating  →  projected FO win%
-    Stage 2 — FO% + team possession style  →  proj offensive sequences (OSP)
-    Stage 3 — OSP + shot volume rating  →  proj shots, SOG
-    Stage 4 — shots + shot quality rating  →  proj goals
-    Stage 5 — goals + 2pt rate + assist rate  →  scores, assists
-    Stage 6 — opponent defensive adjustment at shots stage (not goals)
+    Stage 1 -- FO rating  →  projected FO win%
+    Stage 2 -- FO% + team possession style  →  proj offensive sequences (OSP)
+    Stage 3 -- OSP + shot volume rating  →  proj shots, SOG
+    Stage 4 -- shots + shot quality rating  →  proj goals
+    Stage 5 -- goals + 2pt rate + assist rate  →  scores, assists
+    Stage 6 -- opponent defensive adjustment at shots stage (not goals)
 
     No forced regression to league mean.
     No hardcoded home advantage.
     Opponent quality adjusts the shot-to-goal conversion stage.
     """
 
-    # Ridge input features — strictly pre-game ratings
+    # Ridge input features -- strictly pre-game ratings
     _RIDGE_FEATS = [
         "goals_ewm", "goals_mean", "shot_pct_ewm", "sog_rate_ewm",
         "shots_ewm", "sog_ewm", "osp_ewm", "fo_pct_ewm",
@@ -1328,15 +1328,15 @@ class TeamModel:
         lg_shots = self._lg.get("shots", LG_SHOTS)
         lg_sog = self._lg.get("sog", LG_SOG)
 
-        # ── Stage 1: FO projection ──────────────────────────────────────
+        # -- Stage 1: FO projection --------------------------------------
         fo_pct = _nan(float(team_r.get("bayes_fo_pct", team_r.get("fo_pct_ewm", LG_FO_PCT))), LG_FO_PCT)
         fo_pct = min(max(fo_pct, 0.25), 0.75)
         proj_fo_wins = fo_pct * LG_FOS_PER_GAME
 
-        # ── Stage 2: Possession chain ────────────────────────────────────
+        # -- Stage 2: Possession chain ------------------------------------
         # Possession time driven by FO% (r_fo_top=0.504) + team possession style
         team_top_base = _nan(float(team_r.get("top_sec_ewm", LG_TOP_SEC)), LG_TOP_SEC)
-        # FO effect on possession: modest — r=0.504 means strong but not total driver
+        # FO effect on possession: modest -- r=0.504 means strong but not total driver
         fo_possession_delta = (fo_pct - LG_FO_PCT) * LG_TOP_SEC * 0.40
         proj_top = max(team_top_base + fo_possession_delta, 500.0)
 
@@ -1347,7 +1347,7 @@ class TeamModel:
         osp_top_adj = min(max(osp_top_adj, 0.85), 1.15)       # cap at ±15%
         proj_osp = team_osp_ewm * osp_top_adj
 
-        # ── Stage 3: Shots ────────────────────────────────────────────────
+        # -- Stage 3: Shots ------------------------------------------------
         # Use team's shots EWM directly, adjusted by FO-driven possession edge.
         # Chaining through OSP introduced noise; shots EWM (autocorr 0.124) is
         # a more reliable direct signal than deriving shots from OSP.
@@ -1367,17 +1367,17 @@ class TeamModel:
         sog_rate = min(max(sog_rate, 0.40), 0.85)
         proj_sog = proj_shots * sog_rate
 
-        # ── Stage 4: Goals — two paths that should agree ──────────────────
+        # -- Stage 4: Goals -- two paths that should agree ------------------
         #
         # Path A: shots × shot_pct (goals/shots = 0.274 at league avg)
-        #   This is CORRECT — shot% is defined on all shots, not just SOG.
+        #   This is CORRECT -- shot% is defined on all shots, not just SOG.
         #   BUG IN PRIOR VERSION: applied shot_pct to SOG, giving ~7 goals.
         #   Correct: 41 shots × 0.274 = 11.2 goals ✓
         #
         # Path B: SOG × goals_per_SOG (goals/SOG = 0.436 at league avg)
         #   Equivalent numerically: 26 SOG × 0.436 = 11.3 goals ✓
         #
-        # Blend both paths 50/50 — they are equivalent numerically at league
+        # Blend both paths 50/50 -- they are equivalent numerically at league
         # average but diverge at extremes, providing mutual correction.
 
         bayes_sp = _nan(float(team_r.get("bayes_shot_pct", LG_SHOT_PCT)), LG_SHOT_PCT)
@@ -1393,7 +1393,7 @@ class TeamModel:
 
         goals_quality = 0.50 * goals_path_A + 0.50 * goals_path_B
 
-        # Opponent defensive adjustment — applied here at the goals stage (not shots)
+        # Opponent defensive adjustment -- applied here at the goals stage (not shots)
         # log5: proj = lg × (team_off/lg) × (opp_def/lg)
         lg_goals = self._lg.get("goals", LG_GOALS)
         team_off_idx = _nan(float(team_r.get("goals_ewm", lg_goals)), lg_goals) / max(lg_goals, 1.0)
@@ -1404,7 +1404,7 @@ class TeamModel:
         # Final goal projection: 60% quality chain + 40% log5 opponent adjustment
         proj_goals_raw = 0.60 * goals_quality + 0.40 * goals_log5
 
-        # ── Ridge correction (25% blend) ─────────────────────────────────
+        # -- Ridge correction (25% blend) ---------------------------------
         # Ridge learns residual patterns the chain misses.
         # Kept at 25% to avoid overfitting on 336 training rows.
         if self._fitted:
@@ -1423,7 +1423,7 @@ class TeamModel:
 
         proj_goals = max(proj_goals_raw, 0.5) * off_mult
 
-        # ── Stage 5: Derived stats ────────────────────────────────────────
+        # -- Stage 5: Derived stats ----------------------------------------
         two_pt_rate = _nan(float(team_r.get("two_pt_rate_ewm", LG_2PT_RATE)), LG_2PT_RATE)
         two_pt_rate = min(max(two_pt_rate, 0.0), 0.40)
         proj_2pt = proj_goals * two_pt_rate
@@ -1568,7 +1568,7 @@ class PlayerModel:
 
         # Share sums across multi-season rosters are typically 1.5-2.5x due to
         # historical players no longer active. The _rescale() call in _reconcile()
-        # corrects this after projection — no normalization needed here.
+        # corrects this after projection -- no normalization needed here.
 
         overrides = overrides or {}
         projections = []
@@ -1659,7 +1659,7 @@ class PlayerModel:
         # Correct points formula: 1pt_goals + 2*2pt_goals + assists
         proj_points = proj_1pt + 2.0 * proj_2pt + proj_assists
 
-        # Saves (goalie only) — using correct denominator
+        # Saves (goalie only) -- using correct denominator
         if pos == "G":
             sv_pct = _nan(float(f.get("bayes_save_pct", LG_SAVE_PCT)), LG_SAVE_PCT)
             sv_pct = min(max(sv_pct, 0.30), 0.80)
@@ -1736,7 +1736,7 @@ class PlayerModel:
         def _rescale(stat: str, team_total: float):
             """
             Proportionally rescale active player projections to match team total.
-            Always applies — the share model produces inflated sums from multi-season
+            Always applies -- the share model produces inflated sums from multi-season
             rosters, and full proportional rescaling preserves relative player rankings
             while bringing totals in line.
             """
@@ -1821,7 +1821,7 @@ class GameSimulator:
         home_scores = (home_goals_int - two_h) + 2.0 * two_h
         away_scores = (away_goals_int - two_a) + 2.0 * two_a
 
-        # PLL has overtime — ties are resolved, so true tie rate = 0.
+        # PLL has overtime -- ties are resolved, so true tie rate = 0.
         # Simulated ties (same integer score) are broken by a coin flip,
         # distributing them 50/50 to home and away.
         tied = home_scores == away_scores
@@ -1976,7 +1976,7 @@ class Calibrator:
         self._fitted = False
 
     def fit(self, raw_rows: List[Dict]) -> None:
-        """Fit on list of {pred_prob, actual} dicts — raw game predictions."""
+        """Fit on list of {pred_prob, actual} dicts -- raw game predictions."""
         if len(raw_rows) < 15:
             logger.warning("Calibrator: only %d samples, skipping", len(raw_rows))
             return
@@ -2391,7 +2391,7 @@ class ProjectionEngine:
         ----------
         starter_goalies       : {team_id: player_id}
         team_adjustments      : {team_id: {"off_mult": float, "def_mult_opp": float}}
-        team_rating_overrides : {team_id: {rating_key: value}} — injects values directly
+        team_rating_overrides : {team_id: {rating_key: value}} -- injects values directly
                                 into the team rating dict before prediction, e.g.
                                 {"ATL": {"goals_ewm": 13.5, "bayes_fo_pct": 0.62}}
                                 Supports any key that RatingBuilder puts in the rating dict.
@@ -2626,7 +2626,7 @@ def _assign_player_goalie_saves(
     1. Explicitly designated starter_id
     2. Goalie with most career games (highest confidence rating)
     3. Any active goalie on the roster
-    Falls back to any goalie (active or not) if all are inactive — ensures
+    Falls back to any goalie (active or not) if all are inactive -- ensures
     we never silently produce 0.0 saves for a team that has a goalie.
     """
     goalies = [p for p in player_projs if p.position == "G"]

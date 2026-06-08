@@ -1,4 +1,4 @@
-"""Page 4 — Game Lines"""
+"""Page 4 -- Game Lines"""
 from __future__ import annotations
 
 import sys
@@ -44,11 +44,11 @@ hold_pct = st.session_state.get("hold_pct", 0.045)
 st.title("💰 Game Lines")
 st.markdown(
     f"**{away_nm} @ {home_nm}** · "
-    f"Game {game.get('game_number','—')} · "
+    f"Game {game.get('game_number','--')} · "
     f"{str(game.get('game_date',''))[:10]}"
 )
 
-# ── Sidebar ───────────────────────────────────────────────────────────────
+# -- Sidebar ---------------------------------------------------------------
 with st.sidebar:
     st.markdown("### Line Overrides")
     st.markdown(
@@ -94,7 +94,7 @@ with st.sidebar:
 hold_slider = (hold_num if abs(hold_num - hold_sl) > 0.1 else hold_sl) / 100.0
 pricing = PricingEngine(hold_pct=hold_slider)
 
-# ── Helpers ───────────────────────────────────────────────────────────────
+# -- Helpers ---------------------------------------------------------------
 def _am(prob: float) -> str:
     prob = min(max(prob, 0.001), 0.999)
     if prob >= 0.50:
@@ -173,7 +173,7 @@ home_tt_line = _opt_half_line(home_team_total_arr)
 away_tt_line, p_away_tt_over, away_tt_over_odds, away_tt_under_odds = _price_arr(away_team_total_arr, away_tt_line)
 home_tt_line, p_home_tt_over, home_tt_over_odds, home_tt_under_odds = _price_arr(home_team_total_arr, home_tt_line)
 
-# ── Market display ────────────────────────────────────────────────────────
+# -- Market display --------------------------------------------------------
 st.markdown("---")
 st.markdown("### Moneyline")
 c1, c2, c3 = st.columns(3)
@@ -181,12 +181,12 @@ with c1:
     st.markdown(card(f"{away_nm}", gm.away_ml, f"Win prob: {fmt_prob(gm.away_win_prob)}"),
                 unsafe_allow_html=True)
 with c2:
-    st.markdown(card("Model", "—", f"{gs.n_sims:,} simulations"), unsafe_allow_html=True)
+    st.markdown(card("Model", "--", f"{gs.n_sims:,} simulations"), unsafe_allow_html=True)
 with c3:
     st.markdown(card(f"{home_nm}", gm.home_ml, f"Win prob: {fmt_prob(gm.home_win_prob)}"),
                 unsafe_allow_html=True)
 
-# ── Spread section ────────────────────────────────────────────────────────
+# -- Spread section --------------------------------------------------------
 # Correct sign convention:
 #   act_spread = spread_home (positive means home is favored, they lay points)
 #   home gets negative spread when favored, positive spread when underdog
@@ -240,12 +240,12 @@ with c2:
 
 st.markdown("---")
 
-# ── Summary table ─────────────────────────────────────────────────────────
+# -- Summary table ---------------------------------------------------------
 st.markdown("### Full Market Summary")
 summary = pd.DataFrame([
-    {"Market": f"{away_nm} ML",                   "Line": "—",                    "Odds": gm.away_ml,
+    {"Market": f"{away_nm} ML",                   "Line": "--",                    "Odds": gm.away_ml,
      "Fair Prob": fmt_prob(gm.away_win_prob),       "Hold": f"{hold_slider*100:.1f}%"},
-    {"Market": f"{home_nm} ML",                   "Line": "—",                    "Odds": gm.home_ml,
+    {"Market": f"{home_nm} ML",                   "Line": "--",                    "Odds": gm.home_ml,
      "Fair Prob": fmt_prob(gm.home_win_prob),       "Hold": f"{hold_slider*100:.1f}%"},
     {"Market": f"{away_nm} {away_displayed_spd:+.1f}", "Line": f"{away_displayed_spd:+.1f}", "Odds": aspd_odds,
      "Fair Prob": fmt_prob(1-p_hcover),              "Hold": f"{hold_slider*100:.1f}%"},
@@ -268,7 +268,7 @@ st.dataframe(summary, use_container_width=True, hide_index=True)
 
 st.markdown("---")
 
-# ── Alternate spread table ────────────────────────────────────────────────
+# -- Alternate spread table ------------------------------------------------
 if show_alt_spreads:
     st.markdown("### Alternate Spread Lines")
     st.markdown(
@@ -296,7 +296,7 @@ if show_alt_spreads:
     st.dataframe(pd.DataFrame(alt_spd_rows), use_container_width=True, hide_index=True)
     st.markdown("---")
 
-# ── Alternate totals table ────────────────────────────────────────────────
+# -- Alternate totals table ------------------------------------------------
 if show_alt_totals:
     st.markdown("### Alternate Total Lines")
     st.markdown(
@@ -323,7 +323,7 @@ if show_alt_totals:
     st.dataframe(pd.DataFrame(alt_tot_rows), use_container_width=True, hide_index=True)
     st.markdown("---")
 
-# ── Alternate team-total tables ───────────────────────────────────────────
+# -- Alternate team-total tables -------------------------------------------
 if show_alt_team_totals:
     st.markdown("### Alternate Team Total Lines")
     team_total_rows = []
@@ -348,7 +348,7 @@ if show_alt_team_totals:
     st.dataframe(pd.DataFrame(team_total_rows), use_container_width=True, hide_index=True)
     st.markdown("---")
 
-# ── Score probability grid ────────────────────────────────────────────────
+# -- Score probability grid ------------------------------------------------
 st.markdown("### Score Probability Grid")
 hs  = gs.home_scores.astype(int)
 as_ = gs.away_scores.astype(int)
@@ -380,7 +380,7 @@ st.plotly_chart(fig, use_container_width=True)
 
 st.markdown("---")
 
-# ── Total distribution ─────────────────────────────────────────────────────
+# -- Total distribution -----------------------------------------------------
 st.markdown("### Score Total Distribution")
 fig2 = go.Figure(go.Histogram(x=total_arr, nbinsx=35, marker_color="#3b82f6", opacity=0.7))
 fig2.add_vline(

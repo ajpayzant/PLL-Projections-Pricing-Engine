@@ -1,4 +1,4 @@
-"""Page 3 — Depth Charts"""
+"""Page 3 -- Depth Charts"""
 from __future__ import annotations
 
 import sys
@@ -39,23 +39,23 @@ away_nm = team_name(away_id)
 game    = st.session_state.selected_game or {}
 
 st.title("📋 Depth Charts & Player Ratings")
-st.markdown(f"**{away_nm} @ {home_nm}** · Game {game.get('game_number','—')}")
+st.markdown(f"**{away_nm} @ {home_nm}** · Game {game.get('game_number','--')}")
 
 st.info(
     "**How this works:** Adjust rosters and individual player ratings below. "
     "Click **🔄 Update Projection** in the sidebar to apply all changes. "
     "Only players marked as active appear in projections. "
-    "The model already filtered to each team's current-season roster — "
+    "The model already filtered to each team's current-season roster -- "
     "if a player looks wrong, use the Active toggle to remove them."
 )
 
-# ── Sidebar ───────────────────────────────────────────────────────────────
+# -- Sidebar ---------------------------------------------------------------
 with st.sidebar:
     render_update_projection_btn(engine, key="p3")
 
 st.markdown("---")
 
-# ── Official roster filter status ──────────────────────────────────────────
+# -- Official roster filter status ------------------------------------------
 with st.expander("Official roster filter status", expanded=False):
     status = getattr(engine, "current_rosters_status", {}) or {}
     details = getattr(getattr(engine, "player_model", None), "last_roster_filter_details", {}) or {}
@@ -66,9 +66,9 @@ with st.expander("Official roster filter status", expanded=False):
     reason = status.get("reason", "")
 
     if available:
-        st.success(f"Official roster cache loaded — source: {source}")
+        st.success(f"Official roster cache loaded -- source: {source}")
     else:
-        st.warning(f"Official roster cache unavailable — {reason or source}")
+        st.warning(f"Official roster cache unavailable -- {reason or source}")
 
     if path:
         st.code(str(path))
@@ -119,7 +119,7 @@ def _render_team(team_id: str, team_nm: str, players):
         max(goalies, key=lambda p: p.proj_save_pct).player_id if goalies else None,
     )
 
-    # ── Column headers ─────────────────────────────────────────────────────
+    # -- Column headers -----------------------------------------------------
     hdr = st.columns([3, 1, 1, 1, 2])
     for col, lbl in zip(hdr, ["Player", "Pos", "Active", "Starter (G)", "Usage"]):
         col.markdown(f"**{lbl}**")
@@ -183,7 +183,7 @@ def _render_team(team_id: str, team_nm: str, players):
             if abs(new_usage - usage_val) > 0.001:
                 set_player_override(team_id, pid, "usage_multiplier", new_usage)
 
-        # ── Individual rating adjustments (expandable) ────────────────────
+        # -- Individual rating adjustments (expandable) --------------------
         if is_active:
             rating_overrides = existing.get("rating_overrides", {})
             has_overrides = bool(rating_overrides)
@@ -194,7 +194,7 @@ def _render_team(team_id: str, team_nm: str, players):
             ):
                 st.markdown(
                     "Adjust the model's input ratings for this specific player. "
-                    "**Each slider shows the model's current estimate** — move it to reflect "
+                    "**Each slider shows the model's current estimate** -- move it to reflect "
                     "information that isn't yet in the stats "
                     "(hot streak, injury recovery, matchup advantage, etc.)."
                 )
@@ -290,8 +290,8 @@ def _render_team(team_id: str, team_nm: str, players):
 
     st.markdown("")
 
-    # ── Bulk actions ───────────────────────────────────────────────────────
-    with st.expander(f"Bulk actions — {team_nm}"):
+    # -- Bulk actions -------------------------------------------------------
+    with st.expander(f"Bulk actions -- {team_nm}"):
         ca, cb, cc = st.columns(3)
         with ca:
             if st.button(f"Activate all", key=f"act_all_{team_id}"):
@@ -309,22 +309,22 @@ def _render_team(team_id: str, team_nm: str, players):
                 st.rerun()
 
 
-# ── Usage guide ───────────────────────────────────────────────────────────
+# -- Usage guide -----------------------------------------------------------
 with st.expander("📖 How to use this page", expanded=False):
     st.markdown("""
-**Active toggle** — Uncheck to scratch a player entirely (DNP, injured, suspended).
+**Active toggle** -- Uncheck to scratch a player entirely (DNP, injured, suspended).
 Their projected stats go to zero and the team total is redistributed to active players.
 
-**Starter (G)** — Select exactly one goalie per team as the starting goalie.
+**Starter (G)** -- Select exactly one goalie per team as the starting goalie.
 The model already picks the most likely starter by save%, but you can override it.
 
-**Usage multiplier** — Scales all of a player's projections up or down proportionally.
+**Usage multiplier** -- Scales all of a player's projections up or down proportionally.
 - `1.0` = model's default
 - `1.3` = player is playing an elevated role (star carrying the offense)
 - `0.7` = player is limited (playing through injury, time-sharing)
 - `0.0` = same as marking inactive
 
-**Individual rating adjustments** — Click the ⚙ icon next to any active player.
+**Individual rating adjustments** -- Click the ⚙ icon next to any active player.
 These sliders let you override the specific model inputs for that player:
 
 | Rating | What it controls |
@@ -339,7 +339,7 @@ These sliders let you override the specific model inputs for that player:
 All changes take effect when you click **🔄 Update Projection** in the sidebar.
     """)
 
-# ── Render teams ──────────────────────────────────────────────────────────
+# -- Render teams ----------------------------------------------------------
 tab_away, tab_home = st.tabs([f"📋 {away_nm}", f"📋 {home_nm}"])
 
 with tab_away:

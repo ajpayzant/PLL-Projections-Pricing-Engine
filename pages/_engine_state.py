@@ -1,6 +1,6 @@
 """
-Shared engine state — loaded once per session via st.cache_resource.
-NOT a Streamlit page — kept in pages/ so imports work, but hidden from nav
+Shared engine state -- loaded once per session via st.cache_resource.
+NOT a Streamlit page -- kept in pages/ so imports work, but hidden from nav
 via the leading underscore (Streamlit ≥ 1.28 respects _prefix convention).
 """
 from __future__ import annotations
@@ -14,7 +14,7 @@ from typing import Dict, List, Optional
 
 import streamlit as st
 
-# ── Path bootstrap ────────────────────────────────────────────────────────
+# -- Path bootstrap --------------------------------------------------------
 _PAGES_DIR = Path(__file__).resolve().parent
 _ROOT      = _PAGES_DIR.parent
 for _p in [str(_ROOT), str(_PAGES_DIR)]:
@@ -33,14 +33,14 @@ from projection_engine_v3 import (   # noqa: E402
     LG_FO_PCT, LG_SAVE_PCT, LG_2PT_RATE,
 )
 
-# ── DB path ───────────────────────────────────────────────────────────────
+# -- DB path ---------------------------------------------------------------
 DB_PATH = os.getenv(
     "PLL_DB_PATH",
     str(_ROOT / "data" / "analytics_database" / "pll_warehouse.duckdb"),
 )
 
 
-# ── Bootstrap DB from parquets if missing ────────────────────────────────
+# -- Bootstrap DB from parquets if missing --------------------------------
 def _ensure_db() -> None:
     if Path(DB_PATH).exists():
         return
@@ -51,7 +51,7 @@ def _ensure_db() -> None:
             "Ensure scripts/bootstrap_db.py is in the repository."
         )
         st.stop()
-    with st.spinner("Building database from data files — first load only, ~10 seconds…"):
+    with st.spinner("Building database from data files -- first load only, ~10 seconds…"):
         result = subprocess.run(
             [sys.executable, str(bootstrap)],
             capture_output=True, text=True,
@@ -67,7 +67,7 @@ def _ensure_db() -> None:
 _ensure_db()
 
 
-# ── Engine cache ──────────────────────────────────────────────────────────
+# -- Engine cache ----------------------------------------------------------
 @st.cache_resource(show_spinner="Loading projection engine…")
 def get_engine() -> ProjectionEngine:
     engine = ProjectionEngine(db_path=DB_PATH)
@@ -76,7 +76,7 @@ def get_engine() -> ProjectionEngine:
     return engine
 
 
-# ── Session state ─────────────────────────────────────────────────────────
+# -- Session state ---------------------------------------------------------
 def init_session() -> None:
     defaults: Dict = {
         "selected_game":            None,
@@ -95,7 +95,7 @@ def init_session() -> None:
             st.session_state[k] = v
 
 
-# ── Depth chart helpers ───────────────────────────────────────────────────
+# -- Depth chart helpers ---------------------------------------------------
 def get_depth_chart(team_id: str) -> Dict:
     if team_id not in st.session_state.depth_charts:
         st.session_state.depth_charts[team_id] = {}
@@ -154,7 +154,7 @@ def build_active_players() -> Dict:
     return out
 
 
-# ── New helper functions ──────────────────────────────────────────────────
+# -- New helper functions --------------------------------------------------
 
 def run_projection_for_game(engine, game: Dict) -> Optional[ProjectionResult]:
     """Run projection for a specific game dict using current session state."""
@@ -199,7 +199,7 @@ def render_update_projection_btn(engine, key: str = "upd") -> bool:
     return clicked
 
 
-# ── Universal projection runner ───────────────────────────────────────────
+# -- Universal projection runner -------------------------------------------
 def _season_from_game_dict(g: Dict) -> int:
     for key in ("game_number_season", "season"):
         val = g.get(key)
@@ -318,7 +318,7 @@ def render_global_projection_runner(
         if game:
             home_id = str(game.get("home_team_id", "") or "")
             away_id = str(game.get("away_team_id", "") or "")
-            game_number = game.get("game_number", "—")
+            game_number = game.get("game_number", "--")
             game_date = str(game.get("game_date", "") or "")[:10]
             st.markdown(
                 f'<span class="note-text">'
@@ -361,7 +361,7 @@ def render_global_projection_runner(
                 st.rerun()
 
 
-# ── Team rating override helpers ──────────────────────────────────────────
+# -- Team rating override helpers ------------------------------------------
 def get_team_rating_overrides(team_id: str) -> Dict:
     return st.session_state.team_rating_overrides.get(team_id, {})
 
@@ -382,7 +382,7 @@ def build_team_adjustments() -> Dict:
     return out
 
 
-# ── Game selector helpers ─────────────────────────────────────────────────
+# -- Game selector helpers -------------------------------------------------
 def sorted_upcoming(games: List[Dict]) -> List[Dict]:
     import datetime as dt
     today = dt.date.today()
@@ -438,7 +438,7 @@ def _extract_season_from_game(g: Dict) -> int:
     return 0
 
 
-# ── Constants exposed for UI ──────────────────────────────────────────────
+# -- Constants exposed for UI ----------------------------------------------
 TEAM_RATING_DEFS = {
     "goals_ewm": {
         "label": "Scoring rate (goals/game)",
@@ -512,7 +512,7 @@ PLAYER_RATING_DEFS = {
 }
 
 
-# ── Formatting ────────────────────────────────────────────────────────────
+# -- Formatting ------------------------------------------------------------
 TEAM_COLORS = {
     "ATL": "#1d4ed8", "OUT": "#d97706", "CAN": "#dc2626", "RED": "#16a34a",
     "WAT": "#7c3aed", "WHP": "#0891b2", "CHA": "#334155", "ARC": "#b45309",
