@@ -24,6 +24,7 @@ from _engine_state import (
     build_overrides, build_active_players,
     get_team_rating_overrides, set_team_rating_override,
     sorted_upcoming, default_game_index,
+    render_update_projection_btn,
 )
 
 st.set_page_config(page_title="Projections · PLL", page_icon="🥍", layout="wide")
@@ -79,43 +80,48 @@ with st.sidebar:
         st.warning("No upcoming games for that season.")
         st.stop()
 
-    # Build display labels: "Week XX · Away @ Home · Date"
+    # Build display labels: "Game XX · Away @ Home · Date"
     def _game_label(g: dict) -> str:
         ht   = team_name(g.get("home_team_id",""))
         at   = team_name(g.get("away_team_id",""))
         gnum = g.get("game_number","?")
-        date = str(g.get("game_date",""))[:10]
-        return f"Game {gnum} · {at} @ {ht} · {date}"
+        gdate = str(g.get("game_date",""))[:10]
+        return f"Game {gnum} · {at} @ {ht} · {gdate}"
 
     game_labels = [_game_label(g) for g in season_games]
 
-    # Default to next game whose date >= today in the selected season
+    # Persist selected game across page navigations
+    persisted = st.session_state.get("selected_game")
     default_idx = 0
-    for i, g in enumerate(season_games):
-        try:
-            gd = dt.date.fromisoformat(str(g.get("game_date",""))[:10])
-            if gd >= today:
+    if isinstance(persisted, dict):
+        for i, g in enumerate(season_games):
+            if (g.get("home_team_id") == persisted.get("home_team_id") and
+                    g.get("away_team_id") == persisted.get("away_team_id")):
                 default_idx = i
                 break
-        except Exception:
-            pass
+    else:
+        # find next upcoming
+        for i, g in enumerate(season_games):
+            try:
+                if dt.date.fromisoformat(str(g.get("game_date",""))[:10]) >= today:
+                    default_idx = i
+                    break
+            except Exception:
+                pass
 
     game_idx = st.selectbox(
         "Game",
         options=range(len(season_games)),
         format_func=lambda i: game_labels[i],
         index=default_idx,
-        key="game_idx",
+        key="game_idx_p1",
     )
     game = season_games[game_idx]
-    # Auto-rerun when game selection changes
-    prev_game = st.session_state.get("selected_game") or {}
-    game_changed = (
-        game.get("home_team_id") != prev_game.get("home_team_id") or
-        game.get("away_team_id") != prev_game.get("away_team_id") or
-        str(game.get("game_date",""))[:10] != str(prev_game.get("game_date",""))[:10]
-    )
-    if game_changed:
+
+    # Clear result when game changes
+    prev = st.session_state.get("selected_game") or {}
+    if (game.get("home_team_id") != prev.get("home_team_id") or
+            game.get("away_team_id") != prev.get("away_team_id")):
         st.session_state.last_result = None
     st.session_state.selected_game = game
 
@@ -144,7 +150,7 @@ with st.sidebar:
     af_current = rb.get_team_rating(away_id) if rb else {}
 
     def _rating_sliders(team_id: str, team_nm: str, current_ratings: dict):
-        """Render adjustable sliders for one team's key ratings."""
+        """Render adjustable sliders + number inputs for one team's key ratings."""
         st.markdown(f"**{team_nm}**")
         overrides = get_team_rating_overrides(team_id)
 
@@ -155,15 +161,29 @@ with st.sidebar:
 
             current_override = overrides.get(key, model_val)
 
-            new_val = st.slider(
-                label=meta["label"],
-                min_value=meta["min"],
-                max_value=meta["max"],
-                value=float(current_override),
-                step=meta["step"],
-                help=meta["help"],
-                key=f"tr_{team_id}_{key}",
-            )
+            col_sl, col_num = st.columns([3, 1])
+            with col_sl:
+                sl_val = st.slider(
+                    label=meta["label"],
+                    min_value=meta["min"],
+                    max_value=meta["max"],
+                    value=float(current_override),
+                    step=meta["step"],
+                    help=meta["help"],
+                    key=f"tr_sl_{team_id}_{key}",
+                )
+            with col_num:
+                num_val = st.number_input(
+                    "",
+                    min_value=meta["min"],
+                    max_value=meta["max"],
+                    value=sl_val,
+                    step=meta["step"],
+                    key=f"tr_num_{team_id}_{key}",
+                    label_visibility="collapsed",
+                )
+            new_val = num_val if abs(num_val - sl_val) > meta["step"] * 0.1 else sl_val
+
             # Show model value as reference
             changed = abs(new_val - model_val) > meta["step"] * 0.5
             model_str = meta["fmt"].format(model_val)
@@ -188,7 +208,22 @@ with st.sidebar:
     _rating_sliders(away_id, away_nm + " (Away)", af_current)
 
     st.markdown("---")
-    hold_pct = st.slider("Market hold %", 2.0, 8.0, 4.5, 0.5, key="hold_slider") / 100.0
+
+    # Hold % with slider + number input
+    hcol1, hcol2 = st.columns([3, 1])
+    with hcol1:
+        hold_sl = st.slider("Market hold %", 2.0, 8.0, 4.5, 0.5, key="hold_slider")
+    with hcol2:
+        hold_num = st.number_input(
+            "",
+            min_value=2.0,
+            max_value=8.0,
+            value=hold_sl,
+            step=0.5,
+            key="hold_num",
+            label_visibility="collapsed",
+        )
+    hold_pct = (hold_num if abs(hold_num - hold_sl) > 0.1 else hold_sl) / 100.0
     st.session_state.hold_pct = hold_pct
 
     if st.button("Reset all adjustments", key="reset_adj"):
@@ -196,6 +231,9 @@ with st.sidebar:
         st.rerun()
 
     run_btn = st.button("▶  Run Projection", type="primary", use_container_width=True)
+
+    # Update Projection button (also reruns when clicked)
+    render_update_projection_btn(engine, key="p1")
 
 # ── Run projection ────────────────────────────────────────────────────────
 team_rating_overrides = {}
@@ -241,36 +279,29 @@ st.markdown(
 st.markdown("---")
 
 # ── Win probability row ───────────────────────────────────────────────────
-# spread_home = expected home margin. Team displayed spread = points they
-# give/receive on the line. Favored team (higher win prob) lays points (-).
-# Underdog (lower win prob) receives points (+).
-# When home is favored: spread_home > 0, home lays (-), away gets (+).
-# When away is favored: spread_home < 0, away lays (-), home gets (+).
-away_displayed_spd = gm.spread_home          # away lays home's margin (negative when away favored)
-home_displayed_spd = -gm.spread_home         # home receives/gives opposite
+# home gets + when underdog (home_displayed_spd = -spread_home)
+# away lays - when favored (away_spd_display = spread_home)
+home_spd_display = -gm.spread_home   # home gets + when underdog
+away_spd_display = gm.spread_home    # away lays - when favored
 
 c1, c2, c3, c4, c5 = st.columns([2, 1, 1, 1, 2])
 with c1:
-    st.markdown(card(
-        f"{away_nm} Win Prob",
-        fmt_prob(gm.away_win_prob),
-        f"ML: {gm.away_ml}  ·  Spread: {away_displayed_spd:+.1f} ({gm.spread_away_odds})",
-    ), unsafe_allow_html=True)
+    st.markdown(card(f"{away_nm} Win Prob", fmt_prob(gm.away_win_prob),
+        f"ML: {gm.away_ml}  ·  Spread: {away_spd_display:+.1f} ({gm.spread_away_odds})"),
+        unsafe_allow_html=True)
 with c2:
-    st.markdown(card("Total Line", f"{gm.total_line:.1f}",
-                     f"O{gm.over_odds} / U{gm.under_odds}"), unsafe_allow_html=True)
+    st.markdown(card("Total", f"{gm.total_line:.1f}",
+        f"O{gm.over_odds} / U{gm.under_odds}"), unsafe_allow_html=True)
 with c3:
-    st.markdown(card("Exp. Total", f"{gs.expected_total:.1f}", "sim median"),
-                unsafe_allow_html=True)
+    st.markdown(card("Exp Total", f"{gs.expected_total:.1f}", "sim median"),
+        unsafe_allow_html=True)
 with c4:
-    st.markdown(card("Exp. Margin", f"{gm.spread_home:+.1f}", f"{home_nm} perspective"),
-                unsafe_allow_html=True)
+    st.markdown(card("Margin", f"{gm.spread_home:+.1f}", f"home perspective"),
+        unsafe_allow_html=True)
 with c5:
-    st.markdown(card(
-        f"{home_nm} Win Prob",
-        fmt_prob(gm.home_win_prob),
-        f"ML: {gm.home_ml}  ·  Spread: {home_displayed_spd:+.1f} ({gm.spread_home_odds})",
-    ), unsafe_allow_html=True)
+    st.markdown(card(f"{home_nm} Win Prob", fmt_prob(gm.home_win_prob),
+        f"ML: {gm.home_ml}  ·  Spread: {home_spd_display:+.1f} ({gm.spread_home_odds})"),
+        unsafe_allow_html=True)
 
 fig_wp = go.Figure(go.Bar(
     x=[gm.away_win_prob * 100, gm.home_win_prob * 100],

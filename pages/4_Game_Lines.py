@@ -17,8 +17,9 @@ import streamlit as st
 
 from _engine_state import (
     SHARED_CSS, card, fmt_prob,
-    init_session,
+    init_session, get_engine,
     team_color, team_name,
+    render_update_projection_btn,
 )
 from projection_engine_v3 import PricingEngine
 
@@ -76,7 +77,19 @@ with st.sidebar:
     show_alt_team_totals = st.checkbox("Show alternate team-total tables", value=False)
 
     st.markdown("---")
-    hold_slider = st.slider("Hold %", 2.0, 8.0, hold_pct * 100, 0.5, key="gl_hold") / 100.0
+    st.markdown("### Hold %")
+    hcol1, hcol2 = st.columns([3, 1])
+    with hcol1:
+        hold_sl = st.slider("Hold %", 2.0, 8.0, float(hold_pct * 100), 0.5,
+                             key="gl_hold", label_visibility="collapsed")
+    with hcol2:
+        hold_num = st.number_input("", 2.0, 8.0, hold_sl, 0.5,
+                                    key="gl_hold_num", label_visibility="collapsed")
+    hold_slider = (hold_num if abs(hold_num - hold_sl) > 0.1 else hold_sl) / 100.0
+
+    st.markdown("---")
+    engine = get_engine()
+    render_update_projection_btn(engine, key="p4")
 
 pricing = PricingEngine(hold_pct=hold_slider)
 
@@ -172,12 +185,18 @@ with c3:
     st.markdown(card(f"{home_nm}", gm.home_ml, f"Win prob: {fmt_prob(gm.home_win_prob)}"),
                 unsafe_allow_html=True)
 
+# ── Spread section ────────────────────────────────────────────────────────
+# Correct sign convention:
+#   act_spread = spread_home (positive means home is favored, they lay points)
+#   home gets negative spread when favored, positive spread when underdog
+#   away gets the opposite
+#
+# home_displayed_spd = -act_spread  (home gets + when underdog, - when favored)
+# away_displayed_spd =  act_spread  (away gets + when underdog, - when favored)
+home_displayed_spd = -act_spread
+away_displayed_spd = act_spread
+
 st.markdown("### Spread")
-# act_spread = spread_home = expected home margin.
-# Displayed spread for each team = points they receive/give on the line.
-# Higher win prob team lays (-), lower win prob team gets (+).
-home_displayed_spd = -act_spread   # home gets +X when home is underdog (margin negative)
-away_displayed_spd = act_spread    # away lays the inverse
 c1, c2, c3 = st.columns(3)
 with c1:
     lbl = f"{away_nm} {away_displayed_spd:+.1f}" if away_displayed_spd != 0 else f"{away_nm} PK"
@@ -185,7 +204,7 @@ with c1:
                 unsafe_allow_html=True)
 with c2:
     note = " ⚡" if use_spd else ""
-    st.markdown(card(f"Spread{note}", f"{act_spread:+.1f}", "model spread"),
+    st.markdown(card(f"Spread{note}", f"{act_spread:+.1f}", "home perspective"),
                 unsafe_allow_html=True)
 with c3:
     lbl = f"{home_nm} {home_displayed_spd:+.1f}" if home_displayed_spd != 0 else f"{home_nm} PK"
@@ -223,26 +242,26 @@ st.markdown("---")
 # ── Summary table ─────────────────────────────────────────────────────────
 st.markdown("### Full Market Summary")
 summary = pd.DataFrame([
-    {"Market": f"{away_nm} ML",              "Line": "—",               "Odds": gm.away_ml,
-     "Fair Prob": fmt_prob(gm.away_win_prob), "Hold": f"{hold_slider*100:.1f}%"},
-    {"Market": f"{home_nm} ML",              "Line": "—",               "Odds": gm.home_ml,
-     "Fair Prob": fmt_prob(gm.home_win_prob), "Hold": f"{hold_slider*100:.1f}%"},
+    {"Market": f"{away_nm} ML",                   "Line": "—",                    "Odds": gm.away_ml,
+     "Fair Prob": fmt_prob(gm.away_win_prob),       "Hold": f"{hold_slider*100:.1f}%"},
+    {"Market": f"{home_nm} ML",                   "Line": "—",                    "Odds": gm.home_ml,
+     "Fair Prob": fmt_prob(gm.home_win_prob),       "Hold": f"{hold_slider*100:.1f}%"},
     {"Market": f"{away_nm} {away_displayed_spd:+.1f}", "Line": f"{away_displayed_spd:+.1f}", "Odds": aspd_odds,
-     "Fair Prob": fmt_prob(1-p_hcover),       "Hold": f"{hold_slider*100:.1f}%"},
-    {"Market": f"{home_nm} {home_displayed_spd:+.1f}","Line":f"{home_displayed_spd:+.1f}","Odds": hspd_odds,
-     "Fair Prob": fmt_prob(p_hcover),          "Hold": f"{hold_slider*100:.1f}%"},
-    {"Market": "Total Over",                 "Line": f"{act_total:.1f}", "Odds": over_odds,
-     "Fair Prob": fmt_prob(p_over),           "Hold": f"{hold_slider*100:.1f}%"},
-    {"Market": "Total Under",                "Line": f"{act_total:.1f}", "Odds": under_odds,
-     "Fair Prob": fmt_prob(1-p_over),         "Hold": f"{hold_slider*100:.1f}%"},
-    {"Market": f"{away_nm} Team Total Over",  "Line": f"{away_tt_line:.1f}", "Odds": away_tt_over_odds,
-     "Fair Prob": fmt_prob(p_away_tt_over),   "Hold": f"{hold_slider*100:.1f}%"},
-    {"Market": f"{away_nm} Team Total Under", "Line": f"{away_tt_line:.1f}", "Odds": away_tt_under_odds,
-     "Fair Prob": fmt_prob(1-p_away_tt_over), "Hold": f"{hold_slider*100:.1f}%"},
-    {"Market": f"{home_nm} Team Total Over",  "Line": f"{home_tt_line:.1f}", "Odds": home_tt_over_odds,
-     "Fair Prob": fmt_prob(p_home_tt_over),   "Hold": f"{hold_slider*100:.1f}%"},
-    {"Market": f"{home_nm} Team Total Under", "Line": f"{home_tt_line:.1f}", "Odds": home_tt_under_odds,
-     "Fair Prob": fmt_prob(1-p_home_tt_over), "Hold": f"{hold_slider*100:.1f}%"},
+     "Fair Prob": fmt_prob(1-p_hcover),              "Hold": f"{hold_slider*100:.1f}%"},
+    {"Market": f"{home_nm} {home_displayed_spd:+.1f}", "Line": f"{home_displayed_spd:+.1f}", "Odds": hspd_odds,
+     "Fair Prob": fmt_prob(p_hcover),                "Hold": f"{hold_slider*100:.1f}%"},
+    {"Market": "Total Over",                       "Line": f"{act_total:.1f}",     "Odds": over_odds,
+     "Fair Prob": fmt_prob(p_over),                 "Hold": f"{hold_slider*100:.1f}%"},
+    {"Market": "Total Under",                      "Line": f"{act_total:.1f}",     "Odds": under_odds,
+     "Fair Prob": fmt_prob(1-p_over),               "Hold": f"{hold_slider*100:.1f}%"},
+    {"Market": f"{away_nm} Team Total Over",       "Line": f"{away_tt_line:.1f}",  "Odds": away_tt_over_odds,
+     "Fair Prob": fmt_prob(p_away_tt_over),         "Hold": f"{hold_slider*100:.1f}%"},
+    {"Market": f"{away_nm} Team Total Under",      "Line": f"{away_tt_line:.1f}",  "Odds": away_tt_under_odds,
+     "Fair Prob": fmt_prob(1-p_away_tt_over),       "Hold": f"{hold_slider*100:.1f}%"},
+    {"Market": f"{home_nm} Team Total Over",       "Line": f"{home_tt_line:.1f}",  "Odds": home_tt_over_odds,
+     "Fair Prob": fmt_prob(p_home_tt_over),         "Hold": f"{hold_slider*100:.1f}%"},
+    {"Market": f"{home_nm} Team Total Under",      "Line": f"{home_tt_line:.1f}",  "Odds": home_tt_under_odds,
+     "Fair Prob": fmt_prob(1-p_home_tt_over),       "Hold": f"{hold_slider*100:.1f}%"},
 ])
 st.dataframe(summary, use_container_width=True, hide_index=True)
 

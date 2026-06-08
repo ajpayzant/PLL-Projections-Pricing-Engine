@@ -19,6 +19,7 @@ from _engine_state import (
     team_name,
     get_depth_chart, set_player_override,
     set_player_rating,
+    render_update_projection_btn,
 )
 
 st.set_page_config(page_title="Depth Charts · PLL", page_icon="🥍", layout="wide")
@@ -42,11 +43,15 @@ st.markdown(f"**{away_nm} @ {home_nm}** · Game {game.get('game_number','—')}"
 
 st.info(
     "**How this works:** Adjust rosters and individual player ratings below. "
-    "Go back to **Projections** and click **▶ Run Projection** to apply all changes. "
+    "Click **🔄 Update Projection** in the sidebar to apply all changes. "
     "Only players marked as active appear in projections. "
     "The model already filtered to each team's current-season roster — "
     "if a player looks wrong, use the Active toggle to remove them."
 )
+
+# ── Sidebar ───────────────────────────────────────────────────────────────
+with st.sidebar:
+    render_update_projection_btn(engine, key="p3")
 
 st.markdown("---")
 
@@ -172,7 +177,7 @@ def _render_team(team_id: str, team_nm: str, players):
                     "Usage multiplier applies proportionally to all of this player's stats. "
                     "1.0 = normal. 1.3 = ~30% more involvement (e.g. star is carrying the offense). "
                     "0.7 = limited role (playing through injury, coming off the bench). "
-                    "0.0 = effectively inactive."
+                    "0.0 = same as marking inactive."
                 ),
             )
             if abs(new_usage - usage_val) > 0.001:
@@ -203,7 +208,6 @@ def _render_team(team_id: str, team_nm: str, players):
                         continue
 
                     # Get the model's current value for this player
-                    # Look it up from the player model's rating store
                     pm = engine.player_model
                     model_val: float = 0.0
                     if pm is not None and not pm.pr.empty:
@@ -228,15 +232,29 @@ def _render_team(team_id: str, team_nm: str, players):
                     # Clamp to slider range
                     clamped = min(max(float(current_ov), meta["min"]), meta["max"])
 
-                    new_val = st.slider(
-                        label=meta["label"],
-                        min_value=meta["min"],
-                        max_value=meta["max"],
-                        value=clamped,
-                        step=meta["step"],
-                        help=meta["help"],
-                        key=f"pr_{team_id}_{pid}_{key}",
-                    )
+                    # Slider + number input side by side
+                    rcol1, rcol2 = st.columns([3, 1])
+                    with rcol1:
+                        sl = st.slider(
+                            label=meta["label"],
+                            min_value=meta["min"],
+                            max_value=meta["max"],
+                            value=clamped,
+                            step=meta["step"],
+                            help=meta["help"],
+                            key=f"pr_sl_{team_id}_{pid}_{key}",
+                        )
+                    with rcol2:
+                        nv = st.number_input(
+                            "",
+                            min_value=meta["min"],
+                            max_value=meta["max"],
+                            value=sl,
+                            step=meta["step"],
+                            key=f"pr_num_{team_id}_{pid}_{key}",
+                            label_visibility="collapsed",
+                        )
+                    new_val = nv if abs(nv - sl) > meta["step"] * 0.1 else sl
 
                     model_str = meta["fmt"].format(model_val)
                     changed   = abs(new_val - model_val) > meta["step"] * 0.5
@@ -318,7 +336,7 @@ These sliders let you override the specific model inputs for that player:
 | Save % | Goalie's save rate vs opponent shots (goalies only) |
 | FO win % | Faceoff specialist's win rate (FO only) |
 
-All changes take effect when you return to **Projections** and click **▶ Run Projection**.
+All changes take effect when you click **🔄 Update Projection** in the sidebar.
     """)
 
 # ── Render teams ──────────────────────────────────────────────────────────
@@ -332,6 +350,6 @@ with tab_home:
 
 st.markdown("---")
 st.markdown(
-    '<span class="note-text">Changes take effect when you click ▶ Run Projection on the Projections page.</span>',
+    '<span class="note-text">Changes take effect when you click 🔄 Update Projection in the sidebar.</span>',
     unsafe_allow_html=True,
 )

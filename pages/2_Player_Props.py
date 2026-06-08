@@ -19,6 +19,7 @@ from _engine_state import (
     SHARED_CSS, pos_badge, fmt_prob,
     get_engine, init_session,
     team_color, team_name,
+    render_update_projection_btn,
 )
 from projection_engine_v3 import PricingEngine
 
@@ -70,6 +71,19 @@ with st.sidebar:
     show_alt   = st.checkbox("Show alternate line pricing", value=False)
 
     st.markdown("---")
+    st.markdown("### Hold %")
+    hcol1, hcol2 = st.columns([3, 1])
+    with hcol1:
+        hold_sl = st.slider("Hold %", 2.0, 8.0, float(hold_pct * 100), 0.5, key="pp_hold_slider",
+                            label_visibility="collapsed")
+    with hcol2:
+        hold_num = st.number_input("", 2.0, 8.0, hold_sl, 0.5, key="pp_hold_num",
+                                    label_visibility="collapsed")
+    new_hold_pct = (hold_num if abs(hold_num - hold_sl) > 0.1 else hold_sl) / 100.0
+    st.session_state.hold_pct = new_hold_pct
+    pricing = PricingEngine(hold_pct=new_hold_pct)
+
+    st.markdown("---")
     st.markdown("### Quick Line Override")
     st.markdown('<span class="note-text">Price any player at a custom line.</span>',
                 unsafe_allow_html=True)
@@ -80,6 +94,10 @@ with st.sidebar:
         "Line", 0.5, 25.5, 0.5, 1.0, key="ov_line",
         help="Lines are forced to x.5 values to avoid pushes."
     )
+
+    st.markdown("---")
+    engine = get_engine()
+    render_update_projection_btn(engine, key="p2")
 
 # ── Collect sims ──────────────────────────────────────────────────────────
 all_projs = {p.player_id: p for p in result.home_players + result.away_players}
@@ -128,7 +146,7 @@ if not sims_filtered:
     st.info("No players match the current filters.")
     st.stop()
 
-st.markdown(f"**{len(sims_filtered)} players shown** · hold: {hold_pct*100:.1f}%")
+st.markdown(f"**{len(sims_filtered)} players shown** · hold: {new_hold_pct*100:.1f}%")
 st.markdown("---")
 
 # ── Player prop cards ─────────────────────────────────────────────────────
@@ -143,12 +161,31 @@ for ps in sims_filtered:
     nm  = proj.full_name or pid
     pos = proj.position
     tid = proj.team_id
-    primary_val = pv.get("points", pv.get("saves", pv.get("faceoff_wins", 0)))
 
-    with st.expander(
-        f"{nm}  ·  {pos}  ·  {team_name(tid)}  |  Proj: {primary_val:.2f}",
-        expanded=False,
-    ):
+    # ── Get primary stat line for collapsed summary row ──────────────────
+    if pos == "G":
+        pri_stat, pri_proj = "saves", proj.proj_saves
+    elif pos == "FO":
+        pri_stat, pri_proj = "faceoff_wins", proj.proj_faceoff_wins
+    else:
+        pri_stat, pri_proj = "points", proj.proj_points
+
+    pm_data = markets.get(pid, {})
+    pri_market = pm_data.get("markets", {}).get(pri_stat, {})
+    if pri_market:
+        line_val = pri_market.get("line")
+        line_str = f"{line_val:.1f}" if isinstance(line_val, (int, float)) else "?"
+        over_str = pri_market.get("over_odds", "—")
+        under_str = pri_market.get("under_odds", "—")
+        expander_label = (
+            f"{nm}  ·  {pos}  ·  {team_name(tid)}  |  "
+            f"Proj: {pri_proj:.2f}  |  Line: {line_str}  |  "
+            f"O {over_str} / U {under_str}"
+        )
+    else:
+        expander_label = f"{nm}  ·  {pos}  ·  {team_name(tid)}  |  Proj: {pri_proj:.2f}"
+
+    with st.expander(expander_label, expanded=False):
         col_info, col_dist = st.columns([1, 2])
 
         with col_info:
@@ -269,8 +306,8 @@ for ps in sims_filtered:
 st.markdown("---")
 st.markdown(
     f'<span class="note-text">'
-    f'Hold: {hold_pct*100:.1f}% · 20,000 sims · '
-    f'Adjust hold on the Projections page · '
+    f'Hold: {new_hold_pct*100:.1f}% · 20,000 sims · '
+    f'Adjust hold in sidebar · '
     f'Enable "Alternate line pricing" in sidebar for full line grids'
     f'</span>',
     unsafe_allow_html=True,

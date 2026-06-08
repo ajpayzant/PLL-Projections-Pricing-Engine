@@ -97,9 +97,9 @@ TEAM_GOAL_SIGMA_BASE: float = 3.1
 # Assists have higher zero rates than goals across all positions.
 ZERO_RATE: Dict[str, float] = {
     "A_goals":    0.20, "M_goals":    0.39, "FO_goals":   0.78,
-    "SSDM_goals": 0.84, "LSM_goals":  0.87, "D_goals":    0.95,
+    "SSDM_goals": 0.88, "LSM_goals":  0.90, "D_goals":    0.97,
     "A_assists":  0.55, "M_assists":  0.72, "FO_assists":  0.94,
-    "SSDM_assists": 0.90, "LSM_assists": 0.90, "D_assists": 0.96,
+    "SSDM_assists": 0.92, "LSM_assists": 0.92, "D_assists": 0.97,
 }
 
 # NegBin phi for player stats (var/mean from data)
@@ -122,13 +122,13 @@ POS_DEFAULTS: Dict[str, Dict[str, float]] = {
              "gb_pg": 1.34, "cto_pg": 0.16, "to_pg": 1.61, "touches_pg": 28.1},
     "M":    {"goals_share": 0.130, "assists_share": 0.150, "shots_share": 0.140,
              "gb_pg": 1.00, "cto_pg": 0.13, "to_pg": 1.03, "touches_pg": 18.8},
-    "SSDM": {"goals_share": 0.020, "assists_share": 0.025, "shots_share": 0.025,
+    "SSDM": {"goals_share": 0.012, "assists_share": 0.015, "shots_share": 0.018,
              "gb_pg": 1.27, "cto_pg": 0.43, "to_pg": 0.35, "touches_pg": 7.3},
-    "LSM":  {"goals_share": 0.015, "assists_share": 0.020, "shots_share": 0.020,
+    "LSM":  {"goals_share": 0.008, "assists_share": 0.010, "shots_share": 0.012,
              "gb_pg": 2.40, "cto_pg": 0.74, "to_pg": 0.37, "touches_pg": 5.7},
-    "D":    {"goals_share": 0.005, "assists_share": 0.008, "shots_share": 0.008,
+    "D":    {"goals_share": 0.003, "assists_share": 0.005, "shots_share": 0.005,
              "gb_pg": 1.67, "cto_pg": 0.87, "to_pg": 0.30, "touches_pg": 6.6},
-    "FO":   {"goals_share": 0.030, "assists_share": 0.030, "shots_share": 0.030,
+    "FO":   {"goals_share": 0.020, "assists_share": 0.020, "shots_share": 0.025,
              "gb_pg": 7.03, "cto_pg": 0.18, "to_pg": 0.75, "touches_pg": 7.7},
     "G":    {"goals_share": 0.000, "assists_share": 0.000, "shots_share": 0.002,
              "gb_pg": 1.85, "cto_pg": 0.25, "to_pg": 0.39, "touches_pg": 14.1},
@@ -140,11 +140,11 @@ POS_DEFAULTS: Dict[str, Dict[str, float]] = {
 #   G: goals=1, shots=2 | FO: goals=3 | D: goals=2, shots=4
 #   SSDM: goals=3, shots=5 | LSM: goals=2, shots=4
 POS_CAPS: Dict[str, Dict[str, float]] = {
-    "G":    {"goals": 0.10, "assists": 0.20, "shots": 2.5},
-    "FO":   {"goals": 3.5},
-    "D":    {"goals": 2.5, "shots": 5.0},
-    "SSDM": {"goals": 3.5, "shots": 6.0},
-    "LSM":  {"goals": 2.5, "shots": 5.0},
+    "G":    {"goals": 0.05, "assists": 0.10, "shots": 1.5},
+    "FO":   {"goals": 2.5,  "assists": 1.5},
+    "D":    {"goals": 1.5,  "assists": 1.0, "shots": 3.5},
+    "SSDM": {"goals": 2.0,  "assists": 1.5, "shots": 4.0},
+    "LSM":  {"goals": 1.5,  "assists": 1.0, "shots": 3.5},
 }
 
 
@@ -1019,7 +1019,7 @@ class RatingBuilder:
         df["bayes_shot_pct"] = [_bayesian_rate(g, s, 4, 10) for g, s in zip(g_n, g_d)]
 
         # ── Context
-        df["games_played"] = np.arange(len(df))  # career total rows
+        df["games_played"] = np.arange(len(df))
         df["season_weight"] = df["season"].apply(lambda s: _season_w(int(s), self._current_season))
 
         # Merge all blocks efficiently
@@ -1130,7 +1130,7 @@ class RatingBuilder:
         sv_d = df.get("shots_faced_p", pd.Series(0, index=df.index)).fillna(0).shift(1).cumsum().fillna(0)
         df["bayes_save_pct"] = [_bayesian_rate(s, n, 3, 3) for s, n in zip(sv_n, sv_d)]
 
-        df["games_played"] = np.arange(len(df))  # career total rows
+        df["games_played"] = np.arange(len(df))
 
         extra = pd.concat(blocks, axis=1)
         result = pd.concat([df.reset_index(drop=True), extra.reset_index(drop=True)], axis=1)
@@ -1612,8 +1612,7 @@ class PlayerModel:
             career_v = _nan(float(f.get(f"career_{stat}_pg", 0.0)))
             career_s = career_v / team_total
             pos_s  = pos_def.get(f"{stat}_share", 0.05)
-            # Synthetic/new roster placeholders get a minimal share so they
-            # don't dilute established players.
+            # Synthetic/new roster placeholders: minimal share to avoid diluting stars
             if bool(f.get("synthetic_current_roster", 0)):
                 return min(pos_s * 0.30, 0.02)
             # Weight shifts toward player's own data as career games accumulate.
@@ -2026,7 +2025,6 @@ class PricingEngine:
         ov_adj, un_adj = self._hold(max(ov_p, 1e-4), max(1.0 - ov_p, 1e-4))
 
         spread_line = self._opt_line(gs.margin_distribution, allow_negative=True)
-        # Minimum displayed spread is ±1.5 — snap outward preserving sign.
         if abs(spread_line) < 1.5:
             spread_line = 1.5 if spread_line >= 0 else -1.5
         h_cover = float(np.mean(gs.margin_distribution > spread_line))

@@ -154,6 +154,51 @@ def build_active_players() -> Dict:
     return out
 
 
+# ── New helper functions ──────────────────────────────────────────────────
+
+def run_projection_for_game(engine, game: Dict) -> Optional[ProjectionResult]:
+    """Run projection for a specific game dict using current session state."""
+    home_id = str(game.get("home_team_id", ""))
+    away_id = str(game.get("away_team_id", ""))
+    if not home_id or not away_id:
+        return None
+    team_rating_overrides = {}
+    for tid in [home_id, away_id]:
+        ov = get_team_rating_overrides(tid)
+        if ov:
+            team_rating_overrides[tid] = ov
+    result = engine.project(
+        home_team_id=home_id,
+        away_team_id=away_id,
+        game_date=game.get("game_date"),
+        player_overrides=build_overrides() or None,
+        active_players=build_active_players() or None,
+        team_rating_overrides=team_rating_overrides or None,
+    )
+    st.session_state.last_result = result
+    st.session_state.selected_game = game
+    return result
+
+
+def render_update_projection_btn(engine, key: str = "upd") -> bool:
+    """Render Update Projection button in sidebar. Returns True if clicked."""
+    game = st.session_state.get("selected_game")
+    if not game:
+        return False
+    clicked = st.sidebar.button(
+        "🔄 Update Projection",
+        type="primary",
+        use_container_width=True,
+        key=f"upd_btn_{key}",
+        help="Rerun projection with current depth chart, usage, and rating settings.",
+    )
+    if clicked:
+        with st.spinner("Running 20,000 simulations…"):
+            run_projection_for_game(engine, game)
+        st.rerun()
+    return clicked
+
+
 # ── Universal projection runner ───────────────────────────────────────────
 def _season_from_game_dict(g: Dict) -> int:
     for key in ("game_number_season", "season"):
