@@ -1566,23 +1566,22 @@ class PlayerModel:
                 "final_projection_roster_count": int(len(roster_latest)),
             }
 
-        # Season-recency filter: always applied for current/future games.
-        # Even when neither official roster nor current_team map is available,
-        # restrict to players who appeared in the most recent season in the
-        # ratings table. This prevents retired/transferred players from past
-        # seasons from appearing in 2026 depth charts and diluting projections.
-        # Historical backtests are not affected because use_current_roster_filter=False.
-        if use_current_roster_filter and "season" in roster_latest.columns:
+        # Season-recency filter: always applied for current/future games when the
+        # official roster filter did not apply. Restricts to players whose most
+        # recent appearance for this team was within the last 2 seasons.
+        # This removes retired/transferred players without cutting current-season
+        # additions who may only have 2024 data.
+        # Historical backtests unaffected: use_current_roster_filter=False there.
+        if use_current_roster_filter and not official_applied and "season" in roster_latest.columns:
             max_season = int(roster_latest["season"].max()) if len(roster_latest) else 0
             if max_season > 0:
-                # Keep players who played in the last 2 seasons to handle data lags
-                season_cutoff = max_season - 1
-                roster_latest = roster_latest[
+                season_cutoff = max_season - 1  # keep last 2 seasons
+                filtered_recent = roster_latest[
                     roster_latest["season"].astype(int) >= season_cutoff
                 ].copy()
-                # If this removes everyone, fall back to most recent season only
-                if roster_latest.empty:
-                    roster_latest = roster_latest  # already empty, handled below
+                # Only apply if we still have a meaningful roster (>= 8 players)
+                if len(filtered_recent) >= 8:
+                    roster_latest = filtered_recent
 
         overrides = overrides or {}
         projections = []

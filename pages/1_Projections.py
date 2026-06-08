@@ -426,36 +426,51 @@ for nm, players in [(away_nm, result.away_players), (home_nm, result.home_player
     ]
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
-# -- Model diagnostics (temporary) ----------------------------------------
-# Shows raw rating inputs so we can confirm what the model is actually using
-with st.expander("Model diagnostics (raw ratings)", expanded=False):
+# -- Model diagnostics --------------------------------------------------------
+with st.expander("Model diagnostics (click to diagnose projection issues)", expanded=False):
     pm = engine.player_model
     if pm is not None and not pm.pr.empty:
         pr = pm.pr
+
+        st.markdown("**Roster filter status (what filtered the depth chart):**")
+        filter_details = getattr(pm, "last_roster_filter_details", {})
+        for tid in [home_id, away_id]:
+            d = filter_details.get(tid, {})
+            st.write(f"  {team_name(tid)}: applied={d.get('applied')}, "
+                     f"reason={d.get('reason')}, "
+                     f"matched={d.get('matched_count')}, "
+                     f"final_count={d.get('final_projection_roster_count')}, "
+                     f"synthetic_added={d.get('synthetic_current_roster_added')}")
+
+        crf = pm.current_roster_filter
+        st.write(f"CurrentRosterFilter loaded: {getattr(crf,'available',False)}, "
+                 f"reason: {getattr(crf,'status',{}).get('reason','not loaded')}")
+
+        st.markdown("---")
         for tid, tnm in [(home_id, home_nm), (away_id, away_nm)]:
-            st.markdown(f"**{tnm} ({tid}) -- raw ratings (last row per player)**")
+            st.markdown(f"**{tnm} ({tid}) -- ratings table (last row per player)**")
             team_rows = pr[pr["team_id"] == tid]
             if team_rows.empty:
-                st.write("No ratings found for this team_id")
+                st.write(f"No ratings rows found for team_id='{tid}'")
+                st.write(f"team_ids in ratings: {sorted(pr['team_id'].unique().tolist())}")
                 continue
             latest = team_rows.groupby("player_id").last().reset_index()
-            show_cols = ["player_id", "full_name", "pos_norm", "games_played",
-                         "share_goals_ewm", "career_goals_pg",
-                         "share_assists_ewm", "career_assists_pg",
-                         "goals_ewm", "goals_mean"]
+            max_s = int(latest["season"].max()) if "season" in latest.columns else "?"
+            st.caption(f"Historical rows: {len(team_rows)} | Unique players: {len(latest)} | "
+                       f"Max season in table: {max_s} | "
+                       f"has team_goals: {'team_goals' in team_rows.columns}")
+            if "season" in latest.columns:
+                st.write("Player count by last season:", latest["season"].value_counts()
+                         .sort_index(ascending=False).to_dict())
+            show_cols = ["full_name", "pos_norm", "season", "games_played",
+                         "share_goals_ewm", "career_goals_pg", "goals_ewm", "goals_mean"]
             avail = [c for c in show_cols if c in latest.columns]
-            display_df = latest[avail].copy()
-            for col in ["share_goals_ewm","career_goals_pg","goals_ewm","goals_mean",
-                        "share_assists_ewm","career_assists_pg"]:
-                if col in display_df.columns:
-                    display_df[col] = display_df[col].round(4)
-            display_df = display_df.sort_values("share_goals_ewm", ascending=False) \
-                         if "share_goals_ewm" in display_df.columns \
-                         else display_df
-            st.dataframe(display_df.head(20), use_container_width=True, hide_index=True)
-            st.caption(f"Total rows in ratings for {tid}: {len(team_rows)} | "
-                       f"Latest rows: {len(latest)} | "
-                       f"team_goals merge check -- "
-                       f"has team_goals col: {'team_goals' in team_rows.columns}")
+            disp = latest[avail].copy()
+            for col in ["share_goals_ewm","career_goals_pg","goals_ewm","goals_mean"]:
+                if col in disp.columns:
+                    disp[col] = disp[col].round(4)
+            disp = disp.sort_values("share_goals_ewm", ascending=False) \
+                   if "share_goals_ewm" in disp.columns else disp
+            st.dataframe(disp.head(25), use_container_width=True, hide_index=True)
     else:
         st.write("Player model not loaded or empty")
