@@ -452,8 +452,10 @@ with st.expander("Model diagnostics (click to diagnose projection issues)", expa
         all_players = result.home_players + result.away_players
         proj_map = {p.player_id: p for p in all_players}
 
+        diag_data = getattr(pm, "last_projection_diag", {})
+
         for tid, tnm in [(home_id, home_nm), (away_id, away_nm)]:
-            st.markdown(f"**{tnm} ({tid}) -- ratings vs projected outputs**")
+            st.markdown(f"**{tnm} ({tid}) -- what engine ACTUALLY received vs output**")
             team_rows = pr[pr["team_id"] == tid]
             if team_rows.empty:
                 st.write(f"No ratings rows for team_id='{tid}'")
@@ -466,20 +468,23 @@ with st.expander("Model diagnostics (click to diagnose projection issues)", expa
             for _, row in latest.iterrows():
                 pid = str(row.get("player_id", ""))
                 p   = proj_map.get(pid)
+                d   = diag_data.get(pid, {})
                 rows.append({
-                    "Player":        row.get("full_name", pid),
-                    "Pos":           row.get("pos_norm", "?"),
-                    "Season":        int(row.get("season", 0)),
-                    "GP":            int(row.get("games_played", 0)),
-                    "share_G_ewm":   round(float(row.get("share_goals_ewm", 0)), 4),
-                    "career_G/gm":   round(float(row.get("career_goals_pg", 0)), 3),
-                    "goals_ewm":     round(float(row.get("goals_ewm", 0)), 3),
-                    "PROJ Goals":    round(p.proj_goals, 3) if p else "not projected",
-                    "PROJ Pts":      round(p.proj_points, 3) if p else "not projected",
-                    "Active":        p.active if p else "not projected",
+                    "Player":           row.get("full_name", pid),
+                    "Pos":              row.get("pos_norm", "?"),
+                    "Rtg_GP":           int(row.get("games_played", 0)),   # from ratings table
+                    "Act_GP":           d.get("gp", "?"),                   # what _project_player got
+                    "Rtg_share_G":      round(float(row.get("share_goals_ewm", 0)), 4),
+                    "Act_share_G":      round(float(d.get("share_g_ewm", 0)), 4) if d else "?",
+                    "usage":            round(float(d.get("usage", 1.0)), 2) if d else "?",
+                    "raw_proj_G":       round(float(d.get("proj_goals_raw", 0)), 3) if d else "?",
+                    "FINAL_proj_G":     round(p.proj_goals, 3) if p else "not in result",
+                    "FINAL_proj_Pts":   round(p.proj_points, 3) if p else "not in result",
                 })
             import pandas as _pd
-            disp = _pd.DataFrame(rows).sort_values("share_G_ewm", ascending=False)
+            disp = _pd.DataFrame(rows).sort_values("Rtg_share_G", ascending=False)
             st.dataframe(disp, use_container_width=True, hide_index=True)
+            st.caption("Rtg_ = from ratings table | Act_ = what _project_player actually received | "
+                       "raw_proj_G = before reconcile | FINAL = after reconcile")
     else:
         st.write("Player model not loaded or empty")
