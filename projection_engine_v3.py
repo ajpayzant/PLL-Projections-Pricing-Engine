@@ -1019,7 +1019,7 @@ class RatingBuilder:
         df["bayes_shot_pct"] = [_bayesian_rate(g, s, 4, 10) for g, s in zip(g_n, g_d)]
 
         # ── Context
-        df["games_played"] = df.groupby("season").cumcount()
+        df["games_played"] = np.arange(len(df))  # career total, not per-season
         df["season_weight"] = df["season"].apply(lambda s: _season_w(int(s), self._current_season))
 
         # Merge all blocks efficiently
@@ -1130,7 +1130,11 @@ class RatingBuilder:
         sv_d = df.get("shots_faced_p", pd.Series(0, index=df.index)).fillna(0).shift(1).cumsum().fillna(0)
         df["bayes_save_pct"] = [_bayesian_rate(s, n, 3, 3) for s, n in zip(sv_n, sv_d)]
 
-        df["games_played"] = df.groupby("season").cumcount()
+        # Career game count — total rows processed so far for this player.
+        # Using cumcount() per season was wrong: it reset to 0 each season,
+        # so a 40-game veteran appeared as gp=9 in year 5 and fell into the
+        # sparse-data branch. The row index after sorting by date IS career gp.
+        df["games_played"] = np.arange(len(df))
 
         extra = pd.concat(blocks, axis=1)
         result = pd.concat([df.reset_index(drop=True), extra.reset_index(drop=True)], axis=1)
