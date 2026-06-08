@@ -1054,6 +1054,23 @@ class RatingBuilder:
             return self._pr
 
         result = pd.concat(chunks, ignore_index=True)
+
+        # Fill numeric NaNs with 0 as a safe default, but first protect share
+        # columns from being zeroed out — a zero share makes every player project
+        # identically after _reconcile rescales to team total. Instead fill share
+        # columns with position-level defaults so players with merge misses still
+        # carry a sensible prior rather than zero.
+        for pos_key, pos_vals in POS_DEFAULTS.items():
+            pos_mask = result["pos_norm"] == pos_key
+            for stat in ("goals", "assists", "shots"):
+                col = f"share_{stat}_ewm"
+                if col in result.columns:
+                    default_val = pos_vals.get(f"{stat}_share", 0.05)
+                    result.loc[pos_mask & result[col].isna(), col] = default_val
+                career_col = f"career_{stat}_pg"
+                if career_col in result.columns:
+                    result[career_col] = result[career_col].fillna(0)
+
         num_cols = result.select_dtypes(include=[np.number]).columns
         result[num_cols] = result[num_cols].fillna(0)
         self._pr = result
