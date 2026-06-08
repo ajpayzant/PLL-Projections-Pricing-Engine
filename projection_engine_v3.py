@@ -1608,15 +1608,30 @@ class PlayerModel:
 
         def _share(stat: str, team_total: float) -> float:
             team_total = max(team_total, 1.0)
-            ewm_s = _nan(float(f.get(f"share_{stat}_ewm", 0.0)))
+            ewm_s    = _nan(float(f.get(f"share_{stat}_ewm", 0.0)))
             career_v = _nan(float(f.get(f"career_{stat}_pg", 0.0)))
             career_s = career_v / team_total
-            pos_s = pos_def.get(f"{stat}_share", 0.05)
-            # Weight blend shifts toward EWM as more data accumulates
-            w_ewm = min(0.30 + 0.04 * gp, 0.65)
-            w_career = min(0.20 + 0.02 * gp, 0.35)
-            w_pos = max(1.0 - w_ewm - w_career, 0.05)
-            return max(w_ewm * ewm_s + w_career * career_s + w_pos * pos_s, 0.0)
+            pos_s    = pos_def.get(f"{stat}_share", 0.05)
+            is_synthetic = bool(f.get("synthetic_current_roster", 0))
+
+            # New/synthetic players: minimal cap so they don't dilute established players.
+            # share_goals_ewm is already initialised to pos_s on game 0 via .fillna()
+            # in _player_chunk, so re-applying pos_s here would double-count the prior.
+            if is_synthetic or gp == 0:
+                return max(min(pos_s * 0.40, 0.03), 0.0)
+
+            # Very sparse data (1-4 games): blend own history with position prior
+            if gp < 5:
+                w_ewm    = 0.40 + 0.06 * gp
+                w_career = 0.15 + 0.02 * gp
+                w_pos    = max(1.0 - w_ewm - w_career, 0.0)
+                return max(w_ewm * ewm_s + w_career * career_s + w_pos * pos_s, 0.0)
+
+            # Established players: own data only — EWM 65-78%, career 22-35%.
+            # Position default dropped so stars stay differentiated from role players.
+            w_ewm    = min(0.60 + 0.005 * gp, 0.78)
+            w_career = max(1.0 - w_ewm, 0.22)
+            return max(w_ewm * ewm_s + w_career * career_s, 0.0)
 
         # Goals
         if pos == "G":

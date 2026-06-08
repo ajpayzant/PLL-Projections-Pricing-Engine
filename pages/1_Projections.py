@@ -237,8 +237,11 @@ with c1:
     st.markdown(card(f"{away_nm} Win Prob", fmt_prob(gm.away_win_prob), f"ML: {gm.away_ml}"),
                 unsafe_allow_html=True)
 with c2:
-    st.markdown(card("Spread", f"{gm.spread_home:+.1f}",
-                     f"{gm.spread_home_odds}/{gm.spread_away_odds}"), unsafe_allow_html=True)
+    # spread_home is home margin — away displayed spread is opposite sign
+    _away_spd = -gm.spread_home
+    st.markdown(card("Spread",
+                     f"{away_nm} {_away_spd:+.1f} / {home_nm} {gm.spread_home:+.1f}",
+                     f"{gm.spread_away_odds} / {gm.spread_home_odds}"), unsafe_allow_html=True)
 with c3:
     st.markdown(card("Total Line", str(gm.total_line),
                      f"O{gm.over_odds} / U{gm.under_odds}"), unsafe_allow_html=True)

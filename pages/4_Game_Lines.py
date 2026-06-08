@@ -173,10 +173,13 @@ with c3:
                 unsafe_allow_html=True)
 
 st.markdown("### Spread")
-away_spd = -act_spread
+# spread_home = expected home margin. Displayed spread is the OPPOSITE:
+# home underdog (spread_home=-1.5) GETS +1.5; away favored LAYS -1.5.
+home_display_spd = -act_spread
+away_display_spd = act_spread
 c1, c2, c3 = st.columns(3)
 with c1:
-    lbl = f"{away_nm} {away_spd:+.1f}" if away_spd != 0 else f"{away_nm} PK"
+    lbl = f"{away_nm} {away_display_spd:+.1f}" if away_display_spd != 0 else f"{away_nm} PK"
     st.markdown(card(lbl, aspd_odds, f"P(cover): {1-p_hcover:.1%}"),
                 unsafe_allow_html=True)
 with c2:
@@ -184,7 +187,7 @@ with c2:
     st.markdown(card(f"Spread{note}", f"{act_spread:+.1f}", "model spread"),
                 unsafe_allow_html=True)
 with c3:
-    lbl = f"{home_nm} {act_spread:+.1f}" if act_spread != 0 else f"{home_nm} PK"
+    lbl = f"{home_nm} {home_display_spd:+.1f}" if home_display_spd != 0 else f"{home_nm} PK"
     st.markdown(card(lbl, hspd_odds, f"P(cover): {p_hcover:.1%}"),
                 unsafe_allow_html=True)
 
@@ -223,9 +226,9 @@ summary = pd.DataFrame([
      "Fair Prob": fmt_prob(gm.away_win_prob), "Hold": f"{hold_slider*100:.1f}%"},
     {"Market": f"{home_nm} ML",              "Line": "—",               "Odds": gm.home_ml,
      "Fair Prob": fmt_prob(gm.home_win_prob), "Hold": f"{hold_slider*100:.1f}%"},
-    {"Market": f"{away_nm} {away_spd:+.1f}", "Line": f"{away_spd:+.1f}", "Odds": aspd_odds,
+    {"Market": f"{away_nm} {away_display_spd:+.1f}", "Line": f"{away_display_spd:+.1f}", "Odds": aspd_odds,
      "Fair Prob": fmt_prob(1-p_hcover),       "Hold": f"{hold_slider*100:.1f}%"},
-    {"Market": f"{home_nm} {act_spread:+.1f}","Line":f"{act_spread:+.1f}","Odds": hspd_odds,
+    {"Market": f"{home_nm} {home_display_spd:+.1f}","Line":f"{home_display_spd:+.1f}","Odds": hspd_odds,
      "Fair Prob": fmt_prob(p_hcover),          "Hold": f"{hold_slider*100:.1f}%"},
     {"Market": "Total Over",                 "Line": f"{act_total:.1f}", "Odds": over_odds,
      "Fair Prob": fmt_prob(p_over),           "Hold": f"{hold_slider*100:.1f}%"},
