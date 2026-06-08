@@ -1566,9 +1566,23 @@ class PlayerModel:
                 "final_projection_roster_count": int(len(roster_latest)),
             }
 
-        # Share sums across multi-season rosters are typically 1.5-2.5x due to
-        # historical players no longer active. The _rescale() call in _reconcile()
-        # corrects this after projection -- no normalization needed here.
+        # Season-recency filter: always applied for current/future games.
+        # Even when neither official roster nor current_team map is available,
+        # restrict to players who appeared in the most recent season in the
+        # ratings table. This prevents retired/transferred players from past
+        # seasons from appearing in 2026 depth charts and diluting projections.
+        # Historical backtests are not affected because use_current_roster_filter=False.
+        if use_current_roster_filter and "season" in roster_latest.columns:
+            max_season = int(roster_latest["season"].max()) if len(roster_latest) else 0
+            if max_season > 0:
+                # Keep players who played in the last 2 seasons to handle data lags
+                season_cutoff = max_season - 1
+                roster_latest = roster_latest[
+                    roster_latest["season"].astype(int) >= season_cutoff
+                ].copy()
+                # If this removes everyone, fall back to most recent season only
+                if roster_latest.empty:
+                    roster_latest = roster_latest  # already empty, handled below
 
         overrides = overrides or {}
         projections = []
