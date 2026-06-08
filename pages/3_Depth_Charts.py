@@ -225,6 +225,9 @@ def _render_team(team_id: str, team_nm: str, players):
             )
             if new_active != is_active:
                 set_player_override(team_id, pid, "active", new_active)
+                # Sync usage: 0 when inactive, restore to 1.0 when reactivated
+                set_player_override(team_id, pid, "usage_multiplier",
+                                    0.0 if not new_active else 1.0)
 
         # Starter checkbox (goalies only)
         with c4:
