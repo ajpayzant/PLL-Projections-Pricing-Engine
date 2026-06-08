@@ -1566,9 +1566,19 @@ class PlayerModel:
                 "final_projection_roster_count": int(len(roster_latest)),
             }
 
-        # Share sums across multi-season rosters are typically 1.5-2.5x due to
-        # historical players no longer active. The _rescale() call in _reconcile()
-        # corrects this after projection — no normalization needed here.
+        # Season-recency guardrail: always limit to players from the last 2 seasons.
+        # Safety net for when current_rosters.csv is unavailable -- without it,
+        # 60+ historical players flood in and _reconcile spreads team goals across
+        # all of them, flattening every player's projection to team_goals/n_players.
+        # Only for current/future games; historical backtests unaffected.
+        if use_current_roster_filter and "season" in roster_latest.columns:
+            max_s = int(roster_latest["season"].max()) if len(roster_latest) else 0
+            if max_s > 0:
+                recent = roster_latest[
+                    roster_latest["season"].astype(int) >= (max_s - 1)
+                ].copy()
+                if len(recent) >= 8:
+                    roster_latest = recent
 
         overrides = overrides or {}
         projections = []
@@ -1587,6 +1597,9 @@ class PlayerModel:
                     feats[k] = v
 
             proj = self._project_player(feats, team_proj)
+            proj.active = active
+            proj.usage_multiplier = usage
+            proj.is_starter = is_starter
 
             if not active:
                 proj = self._zero(proj)
