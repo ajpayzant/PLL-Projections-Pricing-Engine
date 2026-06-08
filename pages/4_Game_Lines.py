@@ -85,12 +85,13 @@ with st.sidebar:
     with hcol2:
         hold_num = st.number_input("", 2.0, 8.0, hold_sl, 0.5,
                                     key="gl_hold_num", label_visibility="collapsed")
-    hold_slider = (hold_num if abs(hold_num - hold_sl) > 0.1 else hold_sl) / 100.0
 
     st.markdown("---")
     engine = get_engine()
     render_update_projection_btn(engine, key="p4")
 
+# hold_slider defined OUTSIDE sidebar so it's accessible to helpers below
+hold_slider = (hold_num if abs(hold_num - hold_sl) > 0.1 else hold_sl) / 100.0
 pricing = PricingEngine(hold_pct=hold_slider)
 
 # ── Helpers ───────────────────────────────────────────────────────────────

@@ -79,10 +79,6 @@ with st.sidebar:
     with hcol2:
         hold_num = st.number_input("", 2.0, 8.0, hold_sl, 0.5, key="pp_hold_num",
                                     label_visibility="collapsed")
-    new_hold_pct = (hold_num if abs(hold_num - hold_sl) > 0.1 else hold_sl) / 100.0
-    st.session_state.hold_pct = new_hold_pct
-    pricing = PricingEngine(hold_pct=new_hold_pct)
-
     st.markdown("---")
     st.markdown("### Quick Line Override")
     st.markdown('<span class="note-text">Price any player at a custom line.</span>',
@@ -98,6 +94,11 @@ with st.sidebar:
     st.markdown("---")
     engine = get_engine()
     render_update_projection_btn(engine, key="p2")
+
+# hold_pct and pricing defined OUTSIDE sidebar so accessible to prop pricing below
+new_hold_pct = (hold_num if abs(hold_num - hold_sl) > 0.1 else hold_sl) / 100.0
+st.session_state.hold_pct = new_hold_pct
+pricing = PricingEngine(hold_pct=new_hold_pct)
 
 # ── Collect sims ──────────────────────────────────────────────────────────
 all_projs = {p.player_id: p for p in result.home_players + result.away_players}
