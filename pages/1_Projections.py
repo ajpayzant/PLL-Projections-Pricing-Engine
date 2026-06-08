@@ -425,3 +425,37 @@ for nm, players in [(away_nm, result.away_players), (home_nm, result.home_player
         for p in sorted(active, key=lambda x: x.proj_points, reverse=True)[:14]
     ]
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+# -- Model diagnostics (temporary) ----------------------------------------
+# Shows raw rating inputs so we can confirm what the model is actually using
+with st.expander("Model diagnostics (raw ratings)", expanded=False):
+    pm = engine.player_model
+    if pm is not None and not pm.pr.empty:
+        pr = pm.pr
+        for tid, tnm in [(home_id, home_nm), (away_id, away_nm)]:
+            st.markdown(f"**{tnm} ({tid}) -- raw ratings (last row per player)**")
+            team_rows = pr[pr["team_id"] == tid]
+            if team_rows.empty:
+                st.write("No ratings found for this team_id")
+                continue
+            latest = team_rows.groupby("player_id").last().reset_index()
+            show_cols = ["player_id", "full_name", "pos_norm", "games_played",
+                         "share_goals_ewm", "career_goals_pg",
+                         "share_assists_ewm", "career_assists_pg",
+                         "goals_ewm", "goals_mean"]
+            avail = [c for c in show_cols if c in latest.columns]
+            display_df = latest[avail].copy()
+            for col in ["share_goals_ewm","career_goals_pg","goals_ewm","goals_mean",
+                        "share_assists_ewm","career_assists_pg"]:
+                if col in display_df.columns:
+                    display_df[col] = display_df[col].round(4)
+            display_df = display_df.sort_values("share_goals_ewm", ascending=False) \
+                         if "share_goals_ewm" in display_df.columns \
+                         else display_df
+            st.dataframe(display_df.head(20), use_container_width=True, hide_index=True)
+            st.caption(f"Total rows in ratings for {tid}: {len(team_rows)} | "
+                       f"Latest rows: {len(latest)} | "
+                       f"team_goals merge check -- "
+                       f"has team_goals col: {'team_goals' in team_rows.columns}")
+    else:
+        st.write("Player model not loaded or empty")
