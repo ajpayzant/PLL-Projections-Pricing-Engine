@@ -1627,50 +1627,68 @@ class PlayerModel:
         gp = int(_nan(float(f.get("games_played", 0))))
         pos_def = POS_DEFAULTS.get(pos, POS_DEFAULTS["M"])
 
-        def _share(stat: str, team_total: float) -> float:
-            team_total = max(team_total, 1.0)
-            ewm_s    = _nan(float(f.get(f"share_{stat}_ewm", 0.0)))
-            career_v = _nan(float(f.get(f"career_{stat}_pg", 0.0)))
-            career_s = career_v / team_total
-            pos_s    = pos_def.get(f"{stat}_share", 0.05)
+        def _rate(stat: str) -> float:
+            """
+            Return the player's projected per-game rate for a stat.
+
+            Uses direct per-game EWM rates (goals_ewm, assists_ewm, shots_ewm)
+            computed directly from raw game logs — these are robust and never
+            depend on the team-merge that made share_goals_ewm fragile.
+
+            Blend: EWM (recent form) + career mean + position default prior.
+            Weight shifts toward player's own data as career games accumulate.
+            Position default is the only prior for new players.
+            """
+            ewm_val    = _nan(float(f.get(f"{stat}_ewm",  0.0)))
+            mean_val   = _nan(float(f.get(f"{stat}_mean", 0.0)))
+            pos_s      = pos_def.get(f"{stat}_share", 0.05)  # position share prior
             is_synthetic = bool(f.get("synthetic_current_roster", 0))
 
-            # New/synthetic players: minimal cap so they don't dilute established players.
-            # share_goals_ewm is already initialised to pos_s on game 0 via .fillna()
-            # in _player_chunk, so re-applying pos_s here would double-count the prior.
             if is_synthetic or gp == 0:
-                return max(min(pos_s * 0.40, 0.03), 0.0)
+                # No real data — use a conservative fraction of the position default
+                # so new/unknown players don't steal share from established starters
+                return pos_s * LG_GOALS * 0.25
 
-            # Very sparse data (1-4 games): blend own history with position prior
-            if gp < 5:
-                w_ewm    = 0.40 + 0.06 * gp
-                w_career = 0.15 + 0.02 * gp
-                w_pos    = max(1.0 - w_ewm - w_career, 0.0)
-                return max(w_ewm * ewm_s + w_career * career_s + w_pos * pos_s, 0.0)
+            if gp < 8:
+                # Sparse: blend player data with position prior.
+                # All values kept as goals/game (not shares) — pos_s converted
+                # to goals/game by multiplying by league average team goals.
+                pos_rate = pos_s * LG_GOALS   # e.g. 0.200 * 11.25 = 2.25 g/gm for A
+                w_ewm  = 0.35 + 0.06 * gp
+                w_mean = 0.15 + 0.02 * gp
+                w_pos  = max(1.0 - w_ewm - w_mean, 0.0)
+                return w_ewm * ewm_val + w_mean * mean_val + w_pos * pos_rate
 
-            # Established players: own data only — EWM 65-78%, career 22-35%.
-            # Position default dropped so stars stay differentiated from role players.
-            w_ewm    = min(0.60 + 0.005 * gp, 0.78)
-            w_career = max(1.0 - w_ewm, 0.22)
-            return max(w_ewm * ewm_s + w_career * career_s, 0.0)
+            # Established player: trust their own data entirely.
+            # 70% recent EWM, 30% career mean — no position prior needed.
+            return 0.70 * ewm_val + 0.30 * mean_val
+
+        def _proj_from_rate(stat: str, team_total: float) -> float:
+            """Project a player stat using their per-game rate scaled to team total."""
+            rate = _rate(stat)
+            # rate is in goals/game units; scale proportionally to team projection.
+            # If team projects 11.5 goals and player averages 2.5/gm vs league avg
+            # 11.25, their share = 2.5/11.25 → projected = 2.5/11.25 * 11.5 = 2.56
+            share = rate / max(LG_GOALS, 1.0)
+            return max(share * team_total, 0.0)
 
         # Goals
         if pos == "G":
             proj_goals = 0.0
         else:
-            proj_goals = tp.proj_goals * _share("goals", tp.proj_goals) * usage
+            proj_goals = _proj_from_rate("goals", tp.proj_goals) * usage
 
         # Assists
         if pos == "G":
             proj_assists = 0.0
         else:
-            proj_assists = tp.proj_assists * _share("assists", tp.proj_assists) * usage
+            proj_assists = _proj_from_rate("assists", tp.proj_assists) * usage
 
         # Shots
         if pos == "G":
             proj_shots = max(_nan(float(f.get("shots_ewm", 0.2)), 0.2) * usage, 0.0)
         else:
-            proj_shots = tp.proj_shots * _share("shots", tp.proj_shots) * usage
+            proj_shots = _proj_from_rate("shots", tp.proj_shots) * usage
 
         sog_rate = _nan(float(f.get("sog_rate_ewm", LG_SOG_RATE)), LG_SOG_RATE)
         sog_rate = min(max(sog_rate, 0.20), 1.0)
