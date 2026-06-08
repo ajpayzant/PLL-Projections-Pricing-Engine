@@ -1037,18 +1037,15 @@ class RatingBuilder:
         pg = self.pg.copy()
         pg["game_date_utc"] = pd.to_datetime(pg["game_date_utc"], utc=True, errors="coerce")
 
-        # Merge team totals for share computation.
-        # Normalise join keys to strings to prevent type-mismatch merge failures
-        # (e.g. CAN game_id as int in one table, str in the other).
+        # Merge team totals for share computation (left join on game_id + team_id).
+        # Do NOT cast to str -- astype(str) converts NaN to literal "nan" which
+        # breaks valid joins. Keep native types; fill missing totals after merge.
         tg_totals = self.tg[["game_id", "team_id"] + [
             c for c in ("goals", "assists", "shots") if c in self.tg.columns
-        ]].rename(columns={"goals": "team_goals", "assists": "team_assists", "shots": "team_shots"}).copy()
-        tg_totals["game_id"] = tg_totals["game_id"].astype(str)
-        tg_totals["team_id"] = tg_totals["team_id"].astype(str)
-        pg["game_id"] = pg["game_id"].astype(str)
-        pg["team_id"] = pg["team_id"].astype(str)
+        ]].rename(columns={"goals": "team_goals", "assists": "team_assists",
+                           "shots": "team_shots"}).copy()
         pg = pg.merge(tg_totals, on=["game_id", "team_id"], how="left")
-        # Fill any missing team totals with league averages so shares are non-zero
+        # Fill any missing team totals with league averages so shares are never zero
         for col, fill in [("team_goals", LG_GOALS), ("team_assists", LG_GOALS * 0.65),
                           ("team_shots", LG_SHOTS)]:
             if col in pg.columns:
