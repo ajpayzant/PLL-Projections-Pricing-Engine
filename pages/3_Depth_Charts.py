@@ -225,9 +225,11 @@ def _render_team(team_id: str, team_nm: str, players):
             )
             if new_active != is_active:
                 set_player_override(team_id, pid, "active", new_active)
-                # Sync usage: 0 when inactive, restore to 1.0 when reactivated
-                set_player_override(team_id, pid, "usage_multiplier",
-                                    0.0 if not new_active else 1.0)
+                new_usage_val = 0.0 if not new_active else 1.0
+                set_player_override(team_id, pid, "usage_multiplier", new_usage_val)
+                # Force the number_input widget to show the new value immediately
+                # by writing directly to its session state key
+                st.session_state[f"use_{team_id}_{pid}"] = new_usage_val
 
         # Starter checkbox (goalies only)
         with c4:
