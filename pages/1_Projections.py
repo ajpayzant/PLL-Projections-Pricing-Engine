@@ -447,30 +447,39 @@ with st.expander("Model diagnostics (click to diagnose projection issues)", expa
                  f"reason: {getattr(crf,'status',{}).get('reason','not loaded')}")
 
         st.markdown("---")
+
+        # Show actual projected outputs alongside raw ratings for each team
+        all_players = result.home_players + result.away_players
+        proj_map = {p.player_id: p for p in all_players}
+
         for tid, tnm in [(home_id, home_nm), (away_id, away_nm)]:
-            st.markdown(f"**{tnm} ({tid}) -- ratings table (last row per player)**")
+            st.markdown(f"**{tnm} ({tid}) -- ratings vs projected outputs**")
             team_rows = pr[pr["team_id"] == tid]
             if team_rows.empty:
-                st.write(f"No ratings rows found for team_id='{tid}'")
-                st.write(f"team_ids in ratings: {sorted(pr['team_id'].unique().tolist())}")
+                st.write(f"No ratings rows for team_id='{tid}'")
                 continue
             latest = team_rows.groupby("player_id").last().reset_index()
             max_s = int(latest["season"].max()) if "season" in latest.columns else "?"
-            st.caption(f"Historical rows: {len(team_rows)} | Unique players: {len(latest)} | "
-                       f"Max season in table: {max_s} | "
-                       f"has team_goals: {'team_goals' in team_rows.columns}")
-            if "season" in latest.columns:
-                st.write("Player count by last season:", latest["season"].value_counts()
-                         .sort_index(ascending=False).to_dict())
-            show_cols = ["full_name", "pos_norm", "season", "games_played",
-                         "share_goals_ewm", "career_goals_pg", "goals_ewm", "goals_mean"]
-            avail = [c for c in show_cols if c in latest.columns]
-            disp = latest[avail].copy()
-            for col in ["share_goals_ewm","career_goals_pg","goals_ewm","goals_mean"]:
-                if col in disp.columns:
-                    disp[col] = disp[col].round(4)
-            disp = disp.sort_values("share_goals_ewm", ascending=False) \
-                   if "share_goals_ewm" in disp.columns else disp
-            st.dataframe(disp.head(25), use_container_width=True, hide_index=True)
+            st.caption(f"Ratings rows: {len(team_rows)} | Unique: {len(latest)} | Max season: {max_s}")
+
+            rows = []
+            for _, row in latest.iterrows():
+                pid = str(row.get("player_id", ""))
+                p   = proj_map.get(pid)
+                rows.append({
+                    "Player":        row.get("full_name", pid),
+                    "Pos":           row.get("pos_norm", "?"),
+                    "Season":        int(row.get("season", 0)),
+                    "GP":            int(row.get("games_played", 0)),
+                    "share_G_ewm":   round(float(row.get("share_goals_ewm", 0)), 4),
+                    "career_G/gm":   round(float(row.get("career_goals_pg", 0)), 3),
+                    "goals_ewm":     round(float(row.get("goals_ewm", 0)), 3),
+                    "PROJ Goals":    round(p.proj_goals, 3) if p else "not projected",
+                    "PROJ Pts":      round(p.proj_points, 3) if p else "not projected",
+                    "Active":        p.active if p else "not projected",
+                })
+            import pandas as _pd
+            disp = _pd.DataFrame(rows).sort_values("share_G_ewm", ascending=False)
+            st.dataframe(disp, use_container_width=True, hide_index=True)
     else:
         st.write("Player model not loaded or empty")
