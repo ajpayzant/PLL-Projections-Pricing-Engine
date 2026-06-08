@@ -1,5 +1,7 @@
 """
 Shared engine state — loaded once per session via st.cache_resource.
+NOT a Streamlit page — kept in pages/ so imports work, but hidden from nav
+via the leading underscore (Streamlit ≥ 1.28 respects _prefix convention).
 """
 from __future__ import annotations
 
@@ -12,12 +14,13 @@ from typing import Dict, List, Optional
 
 import streamlit as st
 
-# ── Path: both repo root AND pages/ must be on sys.path ──────────────────
+# ── Path bootstrap ────────────────────────────────────────────────────────
 _PAGES_DIR = Path(__file__).resolve().parent
 _ROOT      = _PAGES_DIR.parent
 for _p in [str(_ROOT), str(_PAGES_DIR)]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
+
 
 from projection_engine_v3 import (   # noqa: E402
     ProjectionEngine,
@@ -76,15 +79,16 @@ def get_engine() -> ProjectionEngine:
 # ── Session state ─────────────────────────────────────────────────────────
 def init_session() -> None:
     defaults: Dict = {
-        "selected_game":    None,
-        "last_result":      None,
+        "selected_game":            None,
+        "last_result":              None,
         # depth_charts: {team_id: {player_id: {active, usage_multiplier, is_starter,
         #   rating_overrides: {rating_key: float}}}}
-        "depth_charts":     {},
+        "depth_charts":             {},
         # team_rating_overrides: {team_id: {rating_key: float}}
-        "team_rating_overrides": {},
-        "line_overrides":   {},
-        "hold_pct":         0.045,
+        "team_rating_overrides":    {},
+        "line_overrides":           {},
+        "hold_pct":                 0.045,
+        "last_projection_updated_at": None,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -124,10 +128,13 @@ def build_overrides() -> Dict:
             if "active" in settings:
                 entry["active"] = settings["active"]
             if "usage_multiplier" in settings:
-                entry["usage_multiplier"] = settings["usage_multiplier"]
+                um = float(settings["usage_multiplier"])
+                entry["usage_multiplier"] = um
+                # Treat usage=0.0 as inactive so player is fully excluded
+                if um == 0.0:
+                    entry["active"] = False
             if "is_starter" in settings:
                 entry["is_starter"] = settings["is_starter"]
-            # Flatten rating_overrides into the override dict so the engine picks them up
             for rk, rv in settings.get("rating_overrides", {}).items():
                 entry[rk] = rv
             if entry:
@@ -141,12 +148,14 @@ def build_active_players() -> Dict:
         for pid, settings in team_dc.items():
             if "active" in settings:
                 out[pid] = settings["active"]
+            # usage=0.0 → inactive
+            if float(settings.get("usage_multiplier", 1.0)) == 0.0:
+                out[pid] = False
     return out
 
 
 # ── Universal projection runner ───────────────────────────────────────────
 def _season_from_game_dict(g: Dict) -> int:
-    """Extract season year from a selected/upcoming game dict."""
     for key in ("game_number_season", "season"):
         val = g.get(key)
         if val:
@@ -154,32 +163,23 @@ def _season_from_game_dict(g: Dict) -> int:
                 return int(val)
             except Exception:
                 pass
-
     gdate = str(g.get("game_date", "") or "")
     if len(gdate) >= 4:
         try:
             return int(gdate[:4])
         except Exception:
             pass
-
     return 0
 
 
 def get_selected_game_or_default(engine: Optional[ProjectionEngine] = None) -> Optional[Dict]:
-    """
-    Return the selected game if available; otherwise pick the next upcoming game.
-
-    This lets non-Projections pages rerun a projection even if the user lands
-    directly on Depth Charts / Player Props / Game Lines after app reload.
-    """
+    """Return the persisted selected game, or default to the next upcoming game."""
     game = st.session_state.get("selected_game")
-
     if isinstance(game, dict) and game.get("home_team_id") and game.get("away_team_id"):
         return game
 
     engine = engine or get_engine()
     games = engine.upcoming_games()
-
     if not games:
         return None
 
@@ -192,28 +192,22 @@ def get_selected_game_or_default(engine: Optional[ProjectionEngine] = None) -> O
 
     if game:
         st.session_state.selected_game = game
-
     return game
 
 
 def build_team_rating_overrides_for_game(game: Optional[Dict]) -> Dict:
-    """Build team rating override dict for the selected game's two teams."""
     if not game:
         return {}
-
     out: Dict = {}
-
     for tid in [
         str(game.get("home_team_id", "") or ""),
         str(game.get("away_team_id", "") or ""),
     ]:
         if not tid:
             continue
-
         ov = get_team_rating_overrides(tid)
         if ov:
             out[tid] = ov
-
     return out
 
 
@@ -222,25 +216,17 @@ def run_selected_projection(
     game: Optional[Dict] = None,
 ) -> Optional[ProjectionResult]:
     """
-    Rerun projection for the currently selected game and save it to session state.
-
-    Preserves:
-      - depth chart active/inactive overrides
-      - usage multipliers
-      - player rating overrides
-      - goalie starter overrides
-      - team rating overrides
-      - selected game date for current-roster filtering
+    Rerun projection for the currently selected game. Captures all current
+    session state: depth chart, usage multipliers, player rating overrides,
+    goalie starter, team rating overrides, and hold %.
     """
     engine = engine or get_engine()
     game = game or get_selected_game_or_default(engine)
-
     if not game:
         return None
 
     home_id = str(game.get("home_team_id", "") or "")
     away_id = str(game.get("away_team_id", "") or "")
-
     if not home_id or not away_id:
         return None
 
@@ -261,25 +247,23 @@ def run_selected_projection(
     st.session_state.selected_game = game
     st.session_state.last_result = result
     st.session_state.last_projection_updated_at = date.today().isoformat()
-
     return result
 
 
 def render_global_projection_runner(
     engine: Optional[ProjectionEngine] = None,
     key_prefix: str = "global",
+    show_hold: bool = False,
 ) -> None:
     """
-    Sidebar projection update button for any Streamlit page.
-
-    Place after any page-specific widgets whose state should be included in
-    the rerun. On Depth Charts, this should be rendered after the depth-chart
-    controls so active/usage/starter changes are captured immediately.
+    Sidebar Update Projection button for every page.
+    Place after page-specific sidebar widgets so their state is captured.
     """
     engine = engine or get_engine()
     game = get_selected_game_or_default(engine)
 
     with st.sidebar:
+        st.markdown("---")
         st.markdown("### Projection")
 
         flash = st.session_state.pop("_projection_update_flash", None)
@@ -291,32 +275,44 @@ def render_global_projection_runner(
             away_id = str(game.get("away_team_id", "") or "")
             game_number = game.get("game_number", "—")
             game_date = str(game.get("game_date", "") or "")[:10]
-
             st.markdown(
                 f'<span class="note-text">'
-                f'Current game: <b>{team_name(away_id)} @ {team_name(home_id)}</b><br>'
+                f'<b>{team_name(away_id)} @ {team_name(home_id)}</b><br>'
                 f'Game {game_number} · {game_date}'
                 f'</span>',
                 unsafe_allow_html=True,
             )
+            last_upd = st.session_state.get("last_projection_updated_at")
+            if last_upd:
+                st.markdown(
+                    f'<span class="note-text">Last run: {last_upd}</span>',
+                    unsafe_allow_html=True,
+                )
         else:
-            st.warning("No upcoming game is available.")
+            st.warning("No upcoming game available.")
+
+        if show_hold:
+            hold_pct = st.session_state.get("hold_pct", 0.045)
+            new_hold = st.slider(
+                "Hold %", 2.0, 8.0, float(hold_pct * 100), 0.5,
+                key=f"{key_prefix}_hold_pct",
+            ) / 100.0
+            st.session_state.hold_pct = new_hold
 
         if st.button(
-            "🔄 Update Projection",
+            "▶ Update Projection",
             type="primary",
             use_container_width=True,
             key=f"{key_prefix}_update_projection",
             disabled=game is None,
-            help="Rerun the selected game using current depth chart, usage, starter, and rating overrides.",
+            help="Rerun with current depth chart, usage, starter, and rating overrides.",
         ):
-            with st.spinner("Updating projection…"):
+            with st.spinner("Running 20,000 simulations…"):
                 result = run_selected_projection(engine=engine, game=game)
-
             if result is None:
                 st.error("Projection could not be updated.")
             else:
-                st.session_state["_projection_update_flash"] = "Projection updated."
+                st.session_state["_projection_update_flash"] = "✓ Projection updated."
                 st.rerun()
 
 
@@ -332,20 +328,6 @@ def set_team_rating_override(team_id: str, key: str, value: float) -> None:
 
 
 def build_team_adjustments() -> Dict:
-    """
-    Convert team rating overrides into the team_adjustments dict the engine expects.
-
-    The engine's team_adj accepts {"off_mult": float, "def_mult_opp": float}.
-    We compute these from the user's rating nudges so they map to real model inputs.
-
-    Specifically:
-      - goals_ewm nudge  → off_mult = nudged_goals / original_goals
-      - save_pct nudge   → changes goalie save fraction in team projection
-      - fo_pct nudge     → stored as rating_override, read directly by engine via predict()
-
-    For non-multiplicative overrides (fo_pct, save_pct, shot_pct) we inject them
-    as direct rating overrides into the team_r dict through a wrapper at project() time.
-    """
     out: Dict = {}
     for tid, overrides in st.session_state.team_rating_overrides.items():
         if not overrides:
@@ -357,10 +339,6 @@ def build_team_adjustments() -> Dict:
 
 # ── Game selector helpers ─────────────────────────────────────────────────
 def sorted_upcoming(games: List[Dict]) -> List[Dict]:
-    """
-    Sort upcoming games: current season first (2026), then future seasons,
-    then any residual prior-season unknowns. Within each season sort by date.
-    """
     import datetime as dt
     today = dt.date.today()
     current_year = today.year
@@ -372,7 +350,6 @@ def sorted_upcoming(games: List[Dict]) -> List[Dict]:
             gdate = str(gdate_raw)[:10]
         except Exception:
             gdate = "9999-12-31"
-        # Current season first, then by date
         season_rank = 0 if season == current_year else (1 if season > current_year else 2)
         return (season_rank, gdate)
 
@@ -380,10 +357,6 @@ def sorted_upcoming(games: List[Dict]) -> List[Dict]:
 
 
 def default_game_index(games: List[Dict]) -> int:
-    """
-    Return index of the next upcoming 2026 game (first game with date >= today).
-    Falls back to 0 if nothing found.
-    """
     import datetime as dt
     today = dt.date.today()
     current_year = today.year
@@ -404,7 +377,6 @@ def default_game_index(games: List[Dict]) -> int:
 
 
 def _extract_season_from_game(g: Dict) -> int:
-    """Extract season year from a game dict (handles various key names)."""
     for key in ("season", "game_number_season"):
         v = g.get(key)
         if v:
@@ -422,85 +394,73 @@ def _extract_season_from_game(g: Dict) -> int:
 
 
 # ── Constants exposed for UI ──────────────────────────────────────────────
-# Team-level rating keys the UI can adjust, with display names and ranges.
 TEAM_RATING_DEFS = {
     "goals_ewm": {
         "label": "Scoring rate (goals/game)",
-        "help": "Team's recent average goals per game. League avg ~11.2. "
-                "Raise if offense is playing better than recent stats show; lower if key scorer is out.",
+        "help": "Team's recent avg goals/game. League avg ~11.2. Raise if offense is hot; lower if key scorer is out.",
         "min": 5.0, "max": 20.0, "step": 0.1, "fmt": "{:.1f}",
     },
     "shot_pct_ewm": {
         "label": "Shooting efficiency (goals/shot)",
-        "help": "What fraction of shots become goals. League avg ~0.274. "
-                "Raise for a hot-shooting team; lower if they're in a shooting slump.",
+        "help": "Fraction of shots that become goals. League avg ~0.274.",
         "min": 0.15, "max": 0.45, "step": 0.005, "fmt": "{:.3f}",
     },
     "shots_ewm": {
         "label": "Shot volume (shots/game)",
-        "help": "How many shots the team takes per game. League avg ~41. "
-                "Raise for high-tempo teams; lower if they've been conservative.",
+        "help": "Shots per game. League avg ~41.",
         "min": 25.0, "max": 60.0, "step": 0.5, "fmt": "{:.1f}",
     },
     "bayes_fo_pct": {
         "label": "Faceoff win rate",
-        "help": "Career Bayesian faceoff win%. Drives possession time and shot opportunities. "
-                "League avg 0.500. If the opposing FO specialist is injured, raise this.",
+        "help": "Career Bayesian FO win%. League avg 0.500.",
         "min": 0.25, "max": 0.75, "step": 0.01, "fmt": "{:.3f}",
     },
     "bayes_save_pct": {
         "label": "Goalie save% (saves / shots faced)",
-        "help": "The starting goalie's career Bayesian save%. League avg ~0.537. "
-                "Raise if the elite starter is in net; lower if backup is starting.",
+        "help": "Starting goalie's Bayesian save%. League avg ~0.537.",
         "min": 0.35, "max": 0.75, "step": 0.005, "fmt": "{:.3f}",
     },
     "goals_against_ewm": {
-        "label": "Goals allowed/game (defense quality)",
-        "help": "How many goals the team typically allows per game. League avg ~11.2. "
-                "LOWER = better defense. Lower this if their defense is stronger than stats show.",
+        "label": "Goals allowed/game (defense)",
+        "help": "Goals allowed per game. LOWER = better defense. League avg ~11.2.",
         "min": 5.0, "max": 20.0, "step": 0.1, "fmt": "{:.1f}",
     },
 }
 
-# Player-level rating keys the UI can adjust.
 PLAYER_RATING_DEFS = {
     "share_goals_ewm": {
         "label": "Goal share",
-        "help": "This player's share of team goals (0 = none, 0.20 = 20% of all team goals). "
-                "Raise for primary scorers; lower for role players.",
+        "help": "Player's share of team goals (0.20 = 20% of all team goals).",
         "min": 0.0, "max": 0.50, "step": 0.01, "fmt": "{:.3f}",
-        "positions": ["A","M","D","FO","SSDM","LSM"],
+        "positions": ["A", "M", "D", "FO", "SSDM", "LSM"],
     },
     "share_assists_ewm": {
         "label": "Assist share",
-        "help": "Player's share of team assists. Raise for playmakers.",
+        "help": "Player's share of team assists.",
         "min": 0.0, "max": 0.50, "step": 0.01, "fmt": "{:.3f}",
-        "positions": ["A","M","D","FO","SSDM","LSM"],
+        "positions": ["A", "M", "D", "FO", "SSDM", "LSM"],
     },
     "shot_pct_ewm": {
         "label": "Shooting %",
-        "help": "Player's goals-per-shot rate. League avg ~0.27. "
-                "2PT specialists naturally have higher effective shot% per scoring point.",
+        "help": "Player's goals-per-shot rate. League avg ~0.27.",
         "min": 0.05, "max": 0.60, "step": 0.01, "fmt": "{:.3f}",
-        "positions": ["A","M","SSDM","LSM"],
+        "positions": ["A", "M", "SSDM", "LSM"],
     },
     "two_pt_rate_ewm": {
         "label": "2PT goal rate",
-        "help": "Fraction of this player's goals that are 2-pointers. "
-                "League avg ~7%. Specialists like Connor Kelly run 30%+.",
+        "help": "Fraction of goals that are 2-pointers. League avg ~7%.",
         "min": 0.0, "max": 0.65, "step": 0.01, "fmt": "{:.3f}",
-        "positions": ["A","M","SSDM","LSM"],
+        "positions": ["A", "M", "SSDM", "LSM"],
     },
     "bayes_save_pct": {
         "label": "Save %",
-        "help": "Goalie's career Bayesian save%. Drives saves projection. "
-                "League avg ~0.537. Starter vs backup matters here.",
+        "help": "Goalie's Bayesian save%. League avg ~0.537.",
         "min": 0.35, "max": 0.75, "step": 0.005, "fmt": "{:.3f}",
         "positions": ["G"],
     },
     "bayes_fo_pct": {
         "label": "FO win %",
-        "help": "Player's career Bayesian faceoff win rate. 0.500 = league avg.",
+        "help": "Player's Bayesian faceoff win rate. 0.500 = league avg.",
         "min": 0.25, "max": 0.75, "step": 0.01, "fmt": "{:.3f}",
         "positions": ["FO"],
     },
@@ -580,5 +540,7 @@ SHARED_CSS = """
   .note-text { color:#64748b; font-size:.80rem; font-style:italic; }
   .rating-changed { background:rgba(251,191,36,.12); border-left:3px solid #fbbf24;
     padding:2px 6px; border-radius:0 4px 4px 0; }
+  .prop-summary { font-size:.88rem; color:#cbd5e1; }
+  .prop-summary b { color:#f1f5f9; }
 </style>
 """
