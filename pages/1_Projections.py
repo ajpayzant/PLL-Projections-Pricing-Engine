@@ -426,65 +426,17 @@ for nm, players in [(away_nm, result.away_players), (home_nm, result.home_player
     ]
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
-# -- Model diagnostics --------------------------------------------------------
-with st.expander("Model diagnostics (click to diagnose projection issues)", expanded=False):
+# -- Roster source info -------------------------------------------------------
+with st.expander("Roster source details", expanded=False):
     pm = engine.player_model
-    if pm is not None and not pm.pr.empty:
-        pr = pm.pr
-
-        st.markdown("**Roster filter status (what filtered the depth chart):**")
+    if pm is not None:
         filter_details = getattr(pm, "last_roster_filter_details", {})
         for tid in [home_id, away_id]:
             d = filter_details.get(tid, {})
-            st.write(f"  {team_name(tid)}: applied={d.get('applied')}, "
-                     f"reason={d.get('reason')}, "
-                     f"matched={d.get('matched_count')}, "
-                     f"final_count={d.get('final_projection_roster_count')}, "
-                     f"synthetic_added={d.get('synthetic_current_roster_added')}")
-
-        crf = pm.current_roster_filter
-        st.write(f"CurrentRosterFilter loaded: {getattr(crf,'available',False)}, "
-                 f"reason: {getattr(crf,'status',{}).get('reason','not loaded')}")
-
-        st.markdown("---")
-
-        # Show actual projected outputs alongside raw ratings for each team
-        all_players = result.home_players + result.away_players
-        proj_map = {p.player_id: p for p in all_players}
-
-        diag_data = getattr(pm, "last_projection_diag", {})
-
-        for tid, tnm in [(home_id, home_nm), (away_id, away_nm)]:
-            st.markdown(f"**{tnm} ({tid}) -- what engine ACTUALLY received vs output**")
-            team_rows = pr[pr["team_id"] == tid]
-            if team_rows.empty:
-                st.write(f"No ratings rows for team_id='{tid}'")
-                continue
-            latest = team_rows.groupby("player_id").last().reset_index()
-            max_s = int(latest["season"].max()) if "season" in latest.columns else "?"
-            st.caption(f"Ratings rows: {len(team_rows)} | Unique: {len(latest)} | Max season: {max_s}")
-
-            rows = []
-            for _, row in latest.iterrows():
-                pid = str(row.get("player_id", ""))
-                p   = proj_map.get(pid)
-                d   = diag_data.get(pid, {})
-                rows.append({
-                    "Player":           row.get("full_name", pid),
-                    "Pos":              row.get("pos_norm", "?"),
-                    "Rtg_GP":           int(row.get("games_played", 0)),   # from ratings table
-                    "Act_GP":           d.get("gp", "?"),                   # what _project_player got
-                    "Rtg_share_G":      round(float(row.get("share_goals_ewm", 0)), 4),
-                    "Act_share_G":      round(float(d.get("share_g_ewm", 0)), 4) if d else "?",
-                    "usage":            round(float(d.get("usage", 1.0)), 2) if d else "?",
-                    "raw_proj_G":       round(float(d.get("proj_goals_raw", 0)), 3) if d else "?",
-                    "FINAL_proj_G":     round(p.proj_goals, 3) if p else "not in result",
-                    "FINAL_proj_Pts":   round(p.proj_points, 3) if p else "not in result",
-                })
-            import pandas as _pd
-            disp = _pd.DataFrame(rows).sort_values("Rtg_share_G", ascending=False)
-            st.dataframe(disp, use_container_width=True, hide_index=True)
-            st.caption("Rtg_ = from ratings table | Act_ = what _project_player actually received | "
-                       "raw_proj_G = before reconcile | FINAL = after reconcile")
+            src = d.get("reason", "unknown")
+            count = d.get("final_projection_roster_count", "?")
+            synthetic = d.get("synthetic_current_roster_added", 0)
+            st.write(f"**{team_name(tid)}**: {count} players | source: {src}"
+                     + (f" | {synthetic} new additions (no historical data)" if synthetic else ""))
     else:
-        st.write("Player model not loaded or empty")
+        st.write("Engine not loaded")

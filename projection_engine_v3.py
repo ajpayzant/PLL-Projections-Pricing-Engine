@@ -1492,7 +1492,6 @@ class PlayerModel:
         self._current_team = current_team_map or {}
         self.current_roster_filter = current_roster_filter
         self.last_roster_filter_details: Dict[str, Dict[str, object]] = {}
-        self.last_projection_diag: Dict[str, Dict] = {}  # pid -> diag values
 
     def project_roster(
         self,
@@ -1587,23 +1586,7 @@ class PlayerModel:
                 if k not in ("active", "usage_multiplier", "is_starter"):
                     feats[k] = v
 
-            # Store raw share inputs on feats for diagnostics
-            feats["_diag_gp"]           = feats.get("games_played", 0)
-            feats["_diag_share_g_ewm"]  = feats.get("share_goals_ewm", 0.0)
-            feats["_diag_career_g_pg"]  = feats.get("career_goals_pg", 0.0)
-
             proj = self._project_player(feats, team_proj)
-            proj.active = active
-            proj.usage_multiplier = usage
-            proj.is_starter = is_starter
-            # Store diag values for UI inspection
-            self.last_projection_diag[pid] = {
-                "gp":           feats.get("_diag_gp", 0),
-                "share_g_ewm":  feats.get("_diag_share_g_ewm", 0.0),
-                "career_g_pg":  feats.get("_diag_career_g_pg", 0.0),
-                "usage":        usage,
-                "proj_goals_raw": proj.proj_goals,
-            }
 
             if not active:
                 proj = self._zero(proj)
@@ -1622,14 +1605,19 @@ class PlayerModel:
 
         def _share(stat: str, team_total: float) -> float:
             team_total = max(team_total, 1.0)
-            ewm_s = _nan(float(f.get(f"share_{stat}_ewm", 0.0)))
+            ewm_s  = _nan(float(f.get(f"share_{stat}_ewm", 0.0)))
             career_v = _nan(float(f.get(f"career_{stat}_pg", 0.0)))
             career_s = career_v / team_total
-            pos_s = pos_def.get(f"{stat}_share", 0.05)
-            # Weight blend shifts toward EWM as more data accumulates
-            w_ewm = min(0.30 + 0.04 * gp, 0.65)
+            pos_s  = pos_def.get(f"{stat}_share", 0.05)
+            # Synthetic/new roster placeholders: small prior only, do not dilute stars
+            if bool(f.get("synthetic_current_roster", 0)):
+                return min(pos_s * 0.30, 0.02)
+            # Weight shifts toward player's own data as career games accumulate.
+            # Stronger regression to mean for sparse samples (gp < 10) to prevent
+            # 2-game hot streaks from inflating projections above proven veterans.
+            w_ewm    = min(0.30 + 0.04 * gp, 0.65)
             w_career = min(0.20 + 0.02 * gp, 0.35)
-            w_pos = max(1.0 - w_ewm - w_career, 0.05)
+            w_pos    = max(1.0 - w_ewm - w_career, 0.05)
             return max(w_ewm * ewm_s + w_career * career_s + w_pos * pos_s, 0.0)
 
         # Goals
