@@ -1062,8 +1062,19 @@ class RatingBuilder:
             return self._pr
 
         result = pd.concat(chunks, ignore_index=True)
-        num_cols = result.select_dtypes(include=[np.number]).columns
-        result[num_cols] = result[num_cols].fillna(0)
+        # Fill numeric NaNs with 0, but preserve season -- zeroing season causes
+        # the recency filter in project_roster to drop all season=0 players,
+        # leaving a tiny roster where _reconcile divides goals equally (flat output).
+        protect = {"season", "game_number"}
+        fill_cols = [c for c in result.select_dtypes(include=[np.number]).columns
+                     if c not in protect]
+        result[fill_cols] = result[fill_cols].fillna(0)
+        # Ensure season is always a valid non-zero int
+        if "season" in result.columns:
+            result["season"] = pd.to_numeric(result["season"], errors="coerce")
+            result["season"] = (result.groupby("player_id")["season"]
+                                .transform(lambda s: s.ffill().bfill())
+                                .fillna(0).astype(int))
         self._pr = result
         logger.info("Built player ratings: %d rows x %d cols", result.shape[0], result.shape[1])
         return self._pr
