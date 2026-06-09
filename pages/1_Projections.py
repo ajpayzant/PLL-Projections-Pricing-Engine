@@ -426,29 +426,6 @@ for nm, players in [(away_nm, result.away_players), (home_nm, result.home_player
     ]
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
-# -- Share diagnostics --------------------------------------------------------
-with st.expander("DIAGNOSTIC: share_goals_ewm in ratings table", expanded=True):
-    pm = engine.player_model
-    if pm is not None and not pm.pr.empty:
-        pr = pm.pr
-        for tid in [home_id, away_id]:
-            team_rows = pr[pr["team_id"] == tid]
-            if team_rows.empty:
-                st.write(f"{tid}: NO ROWS in ratings")
-                continue
-            latest = team_rows.groupby("player_id").last().reset_index()
-            cols = [c for c in ["full_name","pos_norm","games_played",
-                                 "share_goals_ewm","career_goals_pg",
-                                 "goals_ewm","team_goals"] if c in latest.columns]
-            d = latest[cols].copy()
-            for c in ["share_goals_ewm","career_goals_pg","goals_ewm"]:
-                if c in d: d[c] = d[c].round(4)
-            nonzero = (d["share_goals_ewm"] > 0.001).sum() if "share_goals_ewm" in d else 0
-            st.write(f"**{tid}**: {len(latest)} players, {nonzero} with share_goals_ewm > 0")
-            st.dataframe(d.sort_values("share_goals_ewm",ascending=False).head(10),
-                        use_container_width=True, hide_index=True)
-    else:
-        st.write("No ratings")
 
 # -- Roster source info -------------------------------------------------------
 with st.expander("Roster source details", expanded=False):
