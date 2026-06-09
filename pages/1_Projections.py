@@ -25,6 +25,7 @@ from _engine_state import (
     get_team_rating_overrides, set_team_rating_override,
     sorted_upcoming, default_game_index,
     render_update_projection_btn,
+    session_to_json, session_from_json,
 )
 
 st.set_page_config(page_title="Projections · PLL", page_icon="🥍", layout="wide")
@@ -234,6 +235,44 @@ with st.sidebar:
 
     # Update Projection button (also reruns when clicked)
     render_update_projection_btn(engine, key="p1")
+
+    # -- Save / Load session state -----------------------------------------
+    st.markdown("---")
+    st.markdown("### Save / Load")
+    st.markdown('<span class="note-text">Save all overrides, depth chart, and selected game to a file. Load it back anytime to restore instantly.</span>',
+                unsafe_allow_html=True)
+
+    # Save button -- generates JSON download
+    save_data = session_to_json()
+    _game = st.session_state.get("selected_game") or {}
+    _gnum = _game.get("game_number", "?")
+    _gdate = str(_game.get("game_date", ""))[:10].replace("-", "")
+    _save_name = f"PLL_session_game{_gnum}_{_gdate}.json"
+    st.download_button(
+        label="💾 Save session",
+        data=save_data,
+        file_name=_save_name,
+        mime="application/json",
+        key="save_session_btn",
+        use_container_width=True,
+        help="Downloads a JSON file with your current game selection, depth chart, and rating overrides.",
+    )
+
+    # Load from uploaded file
+    uploaded = st.file_uploader("Load session", type="json",
+                                 key="load_session_file",
+                                 help="Upload a previously saved session file to restore all settings.",
+                                 label_visibility="collapsed")
+    if uploaded is not None:
+        try:
+            json_str = uploaded.read().decode("utf-8")
+            if session_from_json(json_str):
+                st.success("Session restored. Click Run Projection to reload.")
+                st.rerun()
+            else:
+                st.error("File format not recognised.")
+        except Exception as _e:
+            st.error(f"Could not load: {_e}")
 
 # -- Run projection --------------------------------------------------------
 team_rating_overrides = {}

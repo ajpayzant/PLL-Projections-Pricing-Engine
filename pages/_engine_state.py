@@ -154,6 +154,43 @@ def build_active_players() -> Dict:
     return out
 
 
+# -- Session save/restore --------------------------------------------------
+
+def session_to_json() -> str:
+    """Serialize all user overrides and selected game to a JSON string."""
+    import json
+    payload = {
+        "selected_game":         st.session_state.get("selected_game"),
+        "depth_charts":          st.session_state.get("depth_charts", {}),
+        "team_rating_overrides": st.session_state.get("team_rating_overrides", {}),
+        "hold_pct":              st.session_state.get("hold_pct", 0.045),
+        "version":               1,
+    }
+    return json.dumps(payload, indent=2, default=str)
+
+
+def session_from_json(json_str: str) -> bool:
+    """Restore session state from a previously saved JSON string. Returns True on success."""
+    import json
+    try:
+        payload = json.loads(json_str)
+        if payload.get("version") != 1:
+            return False
+        if payload.get("selected_game"):
+            st.session_state["selected_game"] = payload["selected_game"]
+        if payload.get("depth_charts"):
+            st.session_state["depth_charts"] = payload["depth_charts"]
+        if payload.get("team_rating_overrides"):
+            st.session_state["team_rating_overrides"] = payload["team_rating_overrides"]
+        if "hold_pct" in payload:
+            st.session_state["hold_pct"] = float(payload["hold_pct"])
+        # Clear stale result so app reruns projection with restored state
+        st.session_state["last_result"] = None
+        return True
+    except Exception:
+        return False
+
+
 # -- New helper functions --------------------------------------------------
 
 def run_projection_for_game(engine, game: Dict) -> Optional[ProjectionResult]:
