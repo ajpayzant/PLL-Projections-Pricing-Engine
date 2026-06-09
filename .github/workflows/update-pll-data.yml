@@ -7,6 +7,7 @@ on:
   schedule:
     - cron: '0 12 * * 0'   # Every Sunday at 8 AM ET (noon UTC)
     - cron: '0 12 * * 5'   # Every Friday at 8 AM ET (noon UTC)
+    - cron: '0 17 * * 6'   # Every Saturday at 1 PM ET (5 PM UTC) -- gameday rosters
 
 permissions:
   contents: write
@@ -39,6 +40,9 @@ jobs:
       - name: Build warehouse (scrape API + build parquets)
         run: python scripts/build_warehouse.py
 
+      - name: Scrape gameday rosters (if bearer token available)
+        run: python pll_gameday_roster_cache.py --all-weeks || echo "Gameday roster scrape skipped (check PLL_BEARER_TOKEN secret)"
+
       - name: Commit updated data files
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
@@ -46,3 +50,4 @@ jobs:
           file_pattern: |
             data/curated_data/**/*.parquet
             data/curated_data/**/*.csv
+            data/reference_tables/gameday_rosters/*.csv

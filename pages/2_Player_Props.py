@@ -80,6 +80,18 @@ with st.sidebar:
         hold_num = st.number_input("", 2.0, 8.0, hold_sl, 0.5, key="pp_hold_num",
                                     label_visibility="collapsed")
     st.markdown("---")
+    st.markdown("### Market Line Comparison")
+    st.markdown('<span class="note-text">Enter a market line to see model edge vs market.</span>',
+                unsafe_allow_html=True)
+    mkt_player = st.text_input("Player name (partial)", key="mkt_player")
+    mkt_stat   = st.selectbox("Stat", ["goals","assists","points","shots_on_goal",
+                                        "saves","faceoff_wins"], key="mkt_stat")
+    mkt_line   = st.number_input("Market line", 0.5, 25.5, 0.5, 0.5, key="mkt_line",
+                                  help="Enter the sportsbook's line. Model shows edge = fair prob minus market implied prob.")
+    mkt_over_odds = st.number_input("Market over odds", -500, 500, -110, 5, key="mkt_over_odds",
+                                     help="Enter as integer, e.g. -115 or +105")
+
+    st.markdown("---")
     st.markdown("### Quick Line Override")
     st.markdown('<span class="note-text">Price any player at a custom line.</span>',
                 unsafe_allow_html=True)
@@ -252,6 +264,33 @@ for ps in sims_filtered:
             })
         if rows:
             st.markdown("**Model Lines**")
+            # Add market comparison row if this player/stat matches the sidebar input
+            if (mkt_player and mkt_player.lower() in nm.lower()):
+                for row in rows:
+                    if row["Stat"] == STAT_LABELS.get(mkt_stat, mkt_stat):
+                        # Compute model's fair prob at the market line
+                        dist_key = mkt_stat
+                        if dist_key in ps.stat_distributions:
+                            dist_mkt = ps.stat_distributions[dist_key]
+                            fair_p = float(np.mean(dist_mkt > mkt_line))
+                            # Convert market odds to implied prob
+                            try:
+                                mo = int(mkt_over_odds)
+                                mkt_implied = (-mo / (-mo + 100)) if mo < 0 else (100 / (mo + 100))
+                            except Exception:
+                                mkt_implied = 0.5
+                            edge = fair_p - mkt_implied
+                            edge_str = f"+{edge:.1%}" if edge > 0 else f"{edge:.1%}"
+                            edge_color = "green" if edge > 0.02 else ("red" if edge < -0.02 else "gray")
+                            st.markdown(
+                                f'<div style="background:rgba(8,145,178,.12);border-left:3px solid #0891b2;'
+                                f'padding:4px 10px;border-radius:0 4px 4px 0;margin:4px 0;">'
+                                f'<span style="font-size:.80rem;color:#7dd3fc;">Market comparison -- '
+                                f'{STAT_LABELS.get(mkt_stat, mkt_stat)} {mkt_line:.1f}: '
+                                f'Fair P(Over)={fair_p:.3f} | Market implied={mkt_implied:.3f} | '
+                                f'<b style="color:{edge_color};">Edge: {edge_str}</b></span></div>',
+                                unsafe_allow_html=True,
+                            )
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
         # -- Alternate line pricing -----------------------------------------

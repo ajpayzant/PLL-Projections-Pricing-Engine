@@ -285,12 +285,17 @@ if show_alt_spreads:
     for asp in alt_spreads:
         p_h = float(np.mean(margin_arr > asp))
         h_o, a_o = _hold_odds(p_h, 1 - p_h)
+        # asp is the home margin line; displayed spreads are inverted per convention
+        # (home laying = negative displayed spread, away getting = positive)
+        home_disp = -asp   # home team displayed spread
+        away_disp = asp    # away team displayed spread
         alt_spd_rows.append({
-            f"{home_nm} Spread": f"{asp:+.1f}",
-            f"P({home_nm} covers)": f"{p_h:.3f}",
-            f"{home_nm} odds": h_o,
+            f"{away_nm} Spread": f"{away_disp:+.1f}",
             f"P({away_nm} covers)": f"{1-p_h:.3f}",
             f"{away_nm} odds": a_o,
+            f"{home_nm} Spread": f"{home_disp:+.1f}",
+            f"P({home_nm} covers)": f"{p_h:.3f}",
+            f"{home_nm} odds": h_o,
             "Model spread": f"{gm.spread_home:+.1f}",
         })
     st.dataframe(pd.DataFrame(alt_spd_rows), use_container_width=True, hide_index=True)
