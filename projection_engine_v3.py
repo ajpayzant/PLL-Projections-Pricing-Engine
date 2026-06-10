@@ -102,17 +102,28 @@ ZERO_RATE: Dict[str, float] = {
     "SSDM_assists": 0.90, "LSM_assists": 0.90, "D_assists": 0.96,
 }
 
-# NegBin phi for player stats (var/mean from data)
+# NegBin phi for player stats.
+# phi maps to n = round(phi) in the draw, so var/mean = 1 + mu/n.
+# Measured empirically from all seasons (2022+):
+#   goals:   var/mean ~ 1.02 (A), 1.07 (M) — near-Poisson. phi=40 gives var/mean~1.05 at mu=2.
+#   assists: var/mean ~ 1.4 (A), 1.3 (M) — mildly overdispersed.
+#   shots:   var/mean ~ 1.35 (A), 1.28 (M).
+#   2pt:     var/mean ~ 1.01 — essentially Poisson.
+#   gb:      var/mean ~ 1.2 (A), 1.7 (M), 3.5 (FO) — use moderate value.
+#   saves:   goalies are very consistent (phi=20 keeps var/mean near 1.1).
+#   fo_wins: FO specialists are consistent (phi=20).
+# Note: int(round(phi)) is used in the draw, so phi=40 -> n=40.
+# At phi=40 and typical player mu=1.0, var/mean = 1 + 1.0/40 = 1.025 (Poisson-like).
 PHI_PLAYER: Dict[str, float] = {
-    "goals": 1.8,      # var/mean=1.58
-    "assists": 2.0,    # var/mean=1.72
-    "shots": 1.5,      # var/mean=3.03 -> lower phi = more overdispersion
-    "sog": 2.0,
-    "2pt": 1.2,
-    "gb": 1.8,
-    "saves": 3.5,      # goalies are consistent
-    "fo_wins": 5.0,    # FO specialists are very consistent
-    "default": 2.0,
+    "goals":   40.0,   # var/mean ~ 1.02-1.07 empirically — near-Poisson
+    "assists":  4.0,   # var/mean ~ 1.4 empirically
+    "shots":    5.0,   # var/mean ~ 1.3 empirically
+    "sog":      6.0,
+    "2pt":     30.0,   # var/mean ~ 1.01 — Poisson-like
+    "gb":       4.0,   # var/mean ~ 1.2-1.7
+    "saves":   20.0,   # goalies are consistent
+    "fo_wins": 20.0,   # FO specialists are consistent
+    "default":  5.0,
 }
 
 # Position profiles: defaults when player has sparse data
@@ -605,10 +616,14 @@ def _bayesian_rate(s: float, n: float, a: float = 2.0, b: float = 2.0) -> float:
 
 
 def _negbinom_params(mu: float, phi: float) -> Tuple[int, float]:
+    # n = round(phi) is the integer shape parameter passed to numpy.
+    # p must be computed from n (not phi) so that NB mean = n*(1-p)/p = mu exactly.
+    # Using p = phi/(mu+phi) with n = round(phi) introduces a mean inflation of
+    # n/phi when phi is not an integer (e.g. phi=1.8 → n=2 → mean inflated by 11%).
     mu = max(mu, 0.01)
     phi = max(phi, 0.1)
     n = max(int(round(phi)), 1)
-    p = phi / (mu + phi)
+    p = n / (mu + n)   # ensures NB mean = mu regardless of rounding
     return n, min(max(p, 1e-6), 1 - 1e-6)
 
 
