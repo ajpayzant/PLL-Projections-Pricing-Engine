@@ -14,7 +14,7 @@ import pandas as pd
 import streamlit as st
 
 from _engine_state import (
-    SHARED_CSS, PLAYER_RATING_DEFS, pos_badge,
+    SHARED_CSS, PLAYER_RATING_DEFS,
     get_engine, init_session,
     team_name,
     get_depth_chart, set_player_override,
@@ -126,6 +126,7 @@ POS_LABELS = {
     "SSDM": "Short-Stick Def. Mid", "LSM": "Long-Stick Mid",
     "D": "Defense", "G": "Goalies",
 }
+ALL_POSITIONS = ["A", "M", "FO", "SSDM", "LSM", "D", "G"]
 
 
 def _model_val_for(pid: str, key: str, p) -> float:
@@ -150,12 +151,17 @@ def _model_val_for(pid: str, key: str, p) -> float:
     return proj_map.get(key, 0.0)
 
 
+def _effective_pos(p, dc: dict) -> str:
+    """Return the position to display/group by, respecting any position override."""
+    return dc.get(p.player_id, {}).get("position_override", p.position)
+
+
 def _render_team(team_id: str, team_nm: str, players):
     dc = get_depth_chart(team_id)
 
     sorted_players = sorted(
         players,
-        key=lambda p: (POS_ORDER.get(p.position, 9), -p.proj_points)
+        key=lambda p: (POS_ORDER.get(_effective_pos(p, dc), 9), -p.proj_points)
     )
 
     goalies = [p for p in sorted_players if p.position == "G"]
@@ -182,14 +188,15 @@ def _render_team(team_id: str, team_nm: str, players):
         existing  = dc.get(pid, {})
         is_active = existing.get("active", True)
         usage_val = float(existing.get("usage_multiplier", 1.0))
-        is_goalie = p.position == "G"
-        has_ov    = bool(existing.get("rating_overrides"))
+        eff_pos   = _effective_pos(p, dc)
+        is_goalie = eff_pos == "G"
+        has_ov    = bool(existing.get("rating_overrides") or "position_override" in existing)
         nm        = p.full_name or pid
 
         # -- Position group header -------------------------------------------
-        if p.position != current_group:
-            current_group = p.position
-            label = POS_LABELS.get(p.position, p.position)
+        if eff_pos != current_group:
+            current_group = eff_pos
+            label = POS_LABELS.get(eff_pos, eff_pos)
             st.markdown(f'<div class="dc-group-header">{label}</div>',
                         unsafe_allow_html=True)
 
@@ -212,9 +219,21 @@ def _render_team(team_id: str, team_nm: str, players):
                 unsafe_allow_html=True,
             )
 
-        # Position badge
+        # Position selector (shows current effective position; allows override)
         with c2:
-            st.markdown(pos_badge(p.position), unsafe_allow_html=True)
+            pos_idx = ALL_POSITIONS.index(eff_pos) if eff_pos in ALL_POSITIONS else 0
+            new_pos = st.selectbox(
+                "",
+                options=ALL_POSITIONS,
+                index=pos_idx,
+                key=f"pos_{team_id}_{pid}",
+                label_visibility="collapsed",
+            )
+            if new_pos != p.position:
+                set_player_override(team_id, pid, "position_override", new_pos)
+            elif "position_override" in existing and new_pos == p.position:
+                # User reset back to native position — clear the override
+                del st.session_state.depth_charts[team_id][pid]["position_override"]
 
         # Active checkbox
         with c3:
@@ -275,11 +294,11 @@ def _render_team(team_id: str, team_nm: str, players):
                 unsafe_allow_html=True,
             )
         with c8:
-            if p.position == "G":
+            if eff_pos == "G":
                 lbl = f"{p.proj_saves:.1f}sv" if is_active else "--"
                 st.markdown(f'<span style="font-size:.82rem;color:#94a3b8;">{lbl}</span>',
                             unsafe_allow_html=True)
-            elif p.position == "FO":
+            elif eff_pos == "FO":
                 lbl = f"{p.proj_faceoff_wins:.1f}fw" if is_active else "--"
                 st.markdown(f'<span style="font-size:.82rem;color:#94a3b8;">{lbl}</span>',
                             unsafe_allow_html=True)
@@ -304,14 +323,17 @@ def _render_team(team_id: str, team_nm: str, players):
         # -- Rating override panel (shown inline when toggled) ---------------
         if is_active and st.session_state.get(f"show_ratings_{team_id}_{pid}", False):
             rating_overrides = existing.get("rating_overrides", {})
-            pos = p.position
+            pos = eff_pos  # use effective (possibly overridden) position for rating filtering
+
+            pos_label = POS_LABELS.get(eff_pos, eff_pos)
+            pos_note = (f" · playing as {pos_label}" if eff_pos != p.position else "")
 
             with st.container():
                 st.markdown(
                     f'<div style="background:rgba(30,58,95,.25);border-left:3px solid #0891b2;'
                     f'border-radius:0 6px 6px 0;padding:8px 12px;margin:2px 0 6px;">'
                     f'<span style="font-size:.75rem;color:#7dd3fc;font-weight:700;">'
-                    f'Rating overrides -- {nm}</span></div>',
+                    f'Rating overrides — {nm}{pos_note}</span></div>',
                     unsafe_allow_html=True,
                 )
                 ratings_shown = False
@@ -367,7 +389,7 @@ def _render_team(team_id: str, team_nm: str, players):
                     ratings_shown = True
 
                 if not ratings_shown:
-                    st.caption(f"No adjustable ratings for {pos}.")
+                    st.caption(f"No adjustable ratings for {POS_LABELS.get(pos, pos)}.")
 
                 col_rst, col_close = st.columns(2)
                 with col_rst:
@@ -404,6 +426,7 @@ st.markdown("---")
 st.markdown(
     '<span class="note-text">'
     'Active/usage changes apply on next 🔄 Update Projection. '
+    'Pos dropdown overrides a player\'s position (e.g. Attack → Midfield) — changes projections on next update. '
     'Edit button opens inline rating overrides per player. '
     '⚡ indicates a player has active overrides.'
     '</span>',

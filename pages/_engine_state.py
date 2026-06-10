@@ -135,14 +135,19 @@ def build_overrides() -> Dict:
                     entry["active"] = False
             if "is_starter" in settings:
                 entry["is_starter"] = settings["is_starter"]
-            rating_keys = []
+            # Position override: inject as pos_norm so _project_player uses the
+            # overridden position for POS_DEFAULTS, POS_CAPS, and zero-inflation.
+            override_keys: List[str] = []
+            if "position_override" in settings:
+                entry["pos_norm"] = settings["position_override"]
+                override_keys.append("pos_norm")
             for rk, rv in settings.get("rating_overrides", {}).items():
                 entry[rk] = rv
-                rating_keys.append(rk)
-            # Pass the set of user-overridden rating keys so the engine can
+                override_keys.append(rk)
+            # Pass the set of user-overridden keys so the engine can
             # bypass credibility blending for explicitly set values.
-            if rating_keys:
-                entry["_override_keys"] = rating_keys
+            if override_keys:
+                entry["_override_keys"] = override_keys
             if entry:
                 merged[pid] = entry
     return merged

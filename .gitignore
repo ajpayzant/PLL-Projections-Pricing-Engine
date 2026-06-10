@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# DuckDB binary — rebuilt automatically at app startup from parquet files
+data/analytics_database/*.duckdb
+data/analytics_database/*.duckdb-wal
+data/analytics_database/*.duckdb-shm
+
+# Raw API response cache — rebuilt by build_warehouse.py
+data/source_data/
+
+# Ephemeral quality-check logs
+data/quality_checks/
+
+# Intermediate standardized tables
+data/standardized_data/
+
+# Projection output files
+projection_*.json
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Streamlit secrets (never commit)
+.streamlit/secrets.toml
+
+# Env files
+.env
+.env.local
