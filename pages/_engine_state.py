@@ -135,8 +135,14 @@ def build_overrides() -> Dict:
                     entry["active"] = False
             if "is_starter" in settings:
                 entry["is_starter"] = settings["is_starter"]
+            rating_keys = []
             for rk, rv in settings.get("rating_overrides", {}).items():
                 entry[rk] = rv
+                rating_keys.append(rk)
+            # Pass the set of user-overridden rating keys so the engine can
+            # bypass credibility blending for explicitly set values.
+            if rating_keys:
+                entry["_override_keys"] = rating_keys
             if entry:
                 merged[pid] = entry
     return merged

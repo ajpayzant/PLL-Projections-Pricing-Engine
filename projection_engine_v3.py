@@ -1611,9 +1611,17 @@ class PlayerModel:
 
             feats = row.to_dict()
             feats["usage_multiplier"] = usage
+            # _override_keys is pre-built by build_overrides() — grab it directly
+            # rather than reconstructing from po iteration to avoid double-counting.
+            override_keys = list(po.get("_override_keys", []))
             for k, v in po.items():
-                if k not in ("active", "usage_multiplier", "is_starter"):
+                if k not in ("active", "usage_multiplier", "is_starter", "_override_keys"):
                     feats[k] = v
+            feats["_override_keys"] = override_keys
+            # Provide team shot% so _project_player can compute a relative
+            # multiplier when the user overrides an individual player's shot_pct_ewm.
+            team_shot_pct = _safe_div(team_proj.proj_goals, max(team_proj.proj_shots, 1.0), LG_SHOT_PCT)
+            feats["_team_shot_pct"] = team_shot_pct
 
             proj = self._project_player(feats, team_proj)
             proj.active = active
@@ -1635,9 +1643,13 @@ class PlayerModel:
         gp = int(_nan(float(f.get("games_played", 0))))
         pos_def = POS_DEFAULTS.get(pos, POS_DEFAULTS["M"])
 
+        # Keys the user explicitly overrode — these bypass credibility blending.
+        _user_overrides: set = set(f.get("_override_keys", []))
+
         def _share(stat: str, team_total: float) -> float:
             team_total = max(team_total, 1.0)
-            ewm_s    = _nan(float(f.get("share_" + stat + "_ewm", 0.0)))
+            share_key = "share_" + stat + "_ewm"
+            ewm_s    = _nan(float(f.get(share_key, 0.0)))
             career_v = _nan(float(f.get("career_" + stat + "_pg", 0.0)))
             career_s = career_v / team_total
             pos_s    = pos_def.get(stat + "_share", 0.05)
@@ -1646,6 +1658,10 @@ class PlayerModel:
             # incorrectly route all real players (whose column value is NaN) here.
             if f.get("synthetic_current_roster") == 1:
                 return min(pos_s * 0.30, 0.02)
+            # User explicitly set this share — honour it directly, bypassing the
+            # credibility blend so the override is fully reflected in projections.
+            if share_key in _user_overrides:
+                return max(ewm_s, 0.0)
             # Credibility-weighted blend (Bühlmann-Straub style).
             # k=15: a player needs 15 career games to get equal weight to the prior.
             # This is grounded in the data -- PLL goal-share variance between players
@@ -1658,13 +1674,31 @@ class PlayerModel:
             w_ewm    = 0.65 * own          # EWM carries 65% of the "own data" weight
             w_career = 0.35 * own          # career mean carries 35%
             w_pos    = max(1.0 - own, 0.0) # prior fills the rest; no hard floor
-            return max(w_ewm * ewm_s + w_career * career_s + w_pos * pos_s, 0.0)
+            # Rookies/low-gp players: scale down pos_s so their fallback prior
+            # does not project them as a full league-average player at that position.
+            # POS_DEFAULTS represent the mean share across all players at the position,
+            # meaning a gp=0 player at 100% pos_s would be projected identically to
+            # an established average A/M — higher than a typical new player warrants.
+            # Taper from 0.25 at gp=0 to 1.0 at gp>=15 so the prior is conservative
+            # for sparse samples while fully activating for proven role players.
+            pos_prior_scale = min(0.25 + 0.75 * (gp / max(gp + _K, 1.0)) * 2.0, 1.0)
+            pos_s_scaled = pos_s * pos_prior_scale
+            return max(w_ewm * ewm_s + w_career * career_s + w_pos * pos_s_scaled, 0.0)
 
         # Goals
         if pos == "G":
             proj_goals = 0.0
         else:
             proj_goals = tp.proj_goals * _share("goals", tp.proj_goals) * usage
+            # If the user explicitly overrode shot_pct_ewm, scale goals by the
+            # ratio of the player's overridden shot% vs the team's shot% so the
+            # override meaningfully shifts the player's goal projection.
+            if "shot_pct_ewm" in _user_overrides:
+                player_sp = _nan(float(f.get("shot_pct_ewm", LG_SHOT_PCT)), LG_SHOT_PCT)
+                team_sp   = _nan(float(f.get("_team_shot_pct", LG_SHOT_PCT)), LG_SHOT_PCT)
+                team_sp   = max(team_sp, 0.05)
+                sp_mult   = min(max(player_sp / team_sp, 0.25), 4.0)
+                proj_goals = proj_goals * sp_mult
 
         # Assists
         if pos == "G":

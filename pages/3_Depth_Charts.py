@@ -319,43 +319,50 @@ def _render_team(team_id: str, team_nm: str, players):
                     if pos not in meta.get("positions", []):
                         continue
 
-                    model_val  = _model_val_for(pid, key, p)
-                    current_ov = rating_overrides.get(key, model_val)
-                    clamped    = min(max(float(current_ov), meta["min"]), meta["max"])
+                    model_val = _model_val_for(pid, key, p)
+                    wgt_key   = f"pr_num_{team_id}_{pid}_{key}"
 
-                    rc1, rc2, rc3 = st.columns([2, 2, 1])
+                    # Seed the widget's session state from saved rating_overrides
+                    # the first time this panel opens, or after a reset.
+                    # We only write to st.session_state[wgt_key] when it doesn't
+                    # exist yet so we never overwrite a value the user just typed.
+                    if wgt_key not in st.session_state:
+                        seed_val = rating_overrides.get(key, model_val)
+                        st.session_state[wgt_key] = float(
+                            min(max(float(seed_val), meta["min"]), meta["max"])
+                        )
+
+                    def _on_change(t=team_id, p_=pid, k=key, wk=wgt_key, mn=meta["min"], mx=meta["max"], mv=model_val, stp=meta["step"]):
+                        raw = st.session_state.get(wk, mv)
+                        val = float(min(max(float(raw), mn), mx))
+                        if abs(val - mv) > stp * 0.5:
+                            set_player_rating(t, p_, k, val)
+                        else:
+                            dc_ = get_depth_chart(t)
+                            if p_ in dc_ and k in dc_[p_].get("rating_overrides", {}):
+                                del st.session_state.depth_charts[t][p_]["rating_overrides"][k]
+
+                    rc1, rc2 = st.columns([3, 1])
                     with rc1:
-                        sl = st.slider(
+                        st.number_input(
                             meta["label"],
                             min_value=meta["min"], max_value=meta["max"],
-                            value=clamped, step=meta["step"],
+                            step=meta["step"],
                             help=meta["help"],
-                            key=f"pr_sl_{team_id}_{pid}_{key}",
+                            key=wgt_key,
+                            on_change=_on_change,
                         )
                     with rc2:
-                        nv = st.number_input(
-                            "",
-                            min_value=meta["min"], max_value=meta["max"],
-                            value=sl, step=meta["step"],
-                            key=f"pr_num_{team_id}_{pid}_{key}",
-                            label_visibility="collapsed",
-                        )
-                    with rc3:
-                        model_str = meta["fmt"].format(model_val)
-                        changed   = abs(nv - model_val) > meta["step"] * 0.5
-                        color     = "#fbbf24" if changed else "#64748b"
+                        current_val = float(st.session_state.get(wgt_key, model_val))
+                        changed = abs(current_val - model_val) > meta["step"] * 0.5
+                        color   = "#fbbf24" if changed else "#64748b"
+                        label   = ("→ " + meta["fmt"].format(current_val)) if changed else ("model: " + meta["fmt"].format(model_val))
                         st.markdown(
-                            f'<span style="font-size:.72rem;color:{color};">'
-                            f'{"→ " + meta["fmt"].format(nv) if changed else "model: " + model_str}'
-                            f'</span>',
+                            f'<div style="padding-top:28px;">'
+                            f'<span style="font-size:.72rem;color:{color};">{label}</span>'
+                            f'</div>',
                             unsafe_allow_html=True,
                         )
-
-                    new_val = nv if abs(nv - sl) > meta["step"] * 0.1 else sl
-                    if abs(new_val - model_val) > meta["step"] * 0.5:
-                        set_player_rating(team_id, pid, key, new_val)
-                    elif key in (dc.get(pid, {}).get("rating_overrides", {})):
-                        del st.session_state.depth_charts[team_id][pid]["rating_overrides"][key]
 
                     ratings_shown = True
 
@@ -369,6 +376,11 @@ def _render_team(team_id: str, team_nm: str, players):
                             st.session_state.depth_charts[team_id][pid].pop(
                                 "rating_overrides", None
                             )
+                        # Clear widget session state so inputs reseed from model values
+                        for k2 in PLAYER_RATING_DEFS:
+                            wk2 = f"pr_num_{team_id}_{pid}_{k2}"
+                            if wk2 in st.session_state:
+                                del st.session_state[wk2]
                         st.session_state[f"show_ratings_{team_id}_{pid}"] = False
                         st.rerun()
                 with col_close:
