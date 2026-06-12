@@ -1145,13 +1145,15 @@ class RatingBuilder:
             )
             df[f"career_{stat}_pg"] = df[stat].shift(1).expanding(min_periods=1).mean().fillna(0)
 
-        # Zero-inflation: fraction of games player scored 0
+        # Zero-inflation: EWM fraction of games player scored 0.
+        # Uses same half-life as goals so recent form drives zero rates
+        # the same way it drives counting stat projections.
         for stat in ["goals", "assists"]:
             if stat in df.columns:
                 zero_series = (df[stat].fillna(0) == 0).astype(float)
-                df[f"zero_rate_{stat}"] = zero_series.shift(1).expanding(min_periods=1).mean().fillna(
-                    ZERO_RATE.get(f"{pos}_{stat}", 0.6)
-                )
+                df[f"zero_rate_{stat}"] = zero_series.shift(1).ewm(
+                    halflife=HL_GOALS, min_periods=1
+                ).mean().fillna(ZERO_RATE.get(f"{pos}_{stat}", 0.6))
             else:
                 df[f"zero_rate_{stat}"] = ZERO_RATE.get(f"{pos}_{stat}", 0.6)
 
@@ -2012,7 +2014,7 @@ class GameSimulator:
                 "ground_balls": _nb(pp.proj_ground_balls, "gb"),
             }
 
-            proj_vals = {k: float(np.median(v)) for k, v in dists.items()}
+            proj_vals = {k: float(np.mean(v)) for k, v in dists.items()}
             prop_lines = {k: _nearest_half(float(np.median(v))) for k, v in dists.items()}
 
             results.append(PlayerSimulation(
@@ -2032,7 +2034,7 @@ class GameSimulator:
                     pp.proj_save_pct,
                 ),
             }
-            proj_vals = {k: float(np.median(v)) for k, v in dists.items()}
+            proj_vals = {k: float(np.mean(v)) for k, v in dists.items()}
             prop_lines = {"saves": _nearest_half(float(np.median(dists["saves"])))}
             results.append(PlayerSimulation(
                 player_id=pid, full_name=pp.full_name,
@@ -2045,7 +2047,7 @@ class GameSimulator:
             if existing is not None:
                 fo_draws = _nb(pp.proj_faceoff_wins, "fo_wins")
                 existing.stat_distributions["faceoff_wins"] = fo_draws
-                existing.proj_values["faceoff_wins"] = float(np.median(fo_draws))
+                existing.proj_values["faceoff_wins"] = float(np.mean(fo_draws))
                 existing.prop_lines["faceoff_wins"] = _nearest_half(float(np.median(fo_draws)))
 
         return results
