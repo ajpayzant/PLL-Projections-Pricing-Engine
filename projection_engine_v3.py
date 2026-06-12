@@ -2543,9 +2543,9 @@ class ProjectionEngine:
             use_current_roster_filter=use_current_rosters,
         )
 
-        # Assign goalie saves using correct opponent SOG
-        _assign_player_goalie_saves(h_players, a_proj.proj_sog)
-        _assign_player_goalie_saves(a_players, h_proj.proj_sog)
+        # Assign goalie saves using correct opponent SOG and designated starter
+        _assign_player_goalie_saves(h_players, a_proj.proj_sog, starters.get(home_team_id))
+        _assign_player_goalie_saves(a_players, h_proj.proj_sog, starters.get(away_team_id))
 
         game_sim = self.simulator.simulate_game(h_proj, a_proj)
         h_psims = self.simulator.simulate_players(h_players, game_sim.home_goals, h_proj.proj_goals)
