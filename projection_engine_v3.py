@@ -1623,7 +1623,7 @@ class PlayerModel:
             pid = str(row.get("player_id", ""))
             po = overrides.get(pid, {})
             active = bool(po.get("active", True))
-            usage = float(po.get("usage_multiplier", row.get("usage_multiplier", 1.0)))
+            usage = _nan(float(po.get("usage_multiplier", row.get("usage_multiplier", 1.0))), 1.0)
             is_starter = bool(po.get("is_starter", starter_goalie == pid))
 
             feats = row.to_dict()
@@ -2711,10 +2711,11 @@ def _assign_player_goalie_saves(
 
     Starter selection priority:
     1. Explicitly designated starter_id
-    2. Goalie with most career games (highest confidence rating)
-    3. Any active goalie on the roster
-    Falls back to any goalie (active or not) if all are inactive — ensures
-    we never silently produce 0.0 saves for a team that has a goalie.
+    2. Goalie with most career game history (confidence), then save% as tiebreaker.
+       Synthetic roster additions (confidence=0.40, no game history) are always
+       ranked below any goalie with real game data.
+    Falls back to any goalie (active or not) if all are inactive.
+    Non-starters always get proj_saves=0 and usage_multiplier=0.
     """
     goalies = [p for p in player_projs if p.position == "G"]
     active_goalies = [g for g in goalies if g.active]
@@ -2725,15 +2726,13 @@ def _assign_player_goalie_saves(
     # Pick starter
     if starter_id:
         named = [g for g in pool if g.player_id == starter_id]
-        starter = named[0] if named else max(pool, key=lambda p: p.proj_save_pct)
+        starter = named[0] if named else max(pool, key=lambda p: (p.confidence, p.proj_save_pct))
     else:
-        # Highest save_pct = best goalie = most likely starter.
-        # confidence alone is misleading when a career-starter has 0 current-season games.
-        starter = max(pool, key=lambda p: p.proj_save_pct)
+        # Sort by (confidence desc, save_pct desc): confidence reflects career game
+        # count so synthetic/new players (confidence=0.40) never beat incumbents.
+        starter = max(pool, key=lambda p: (p.confidence, p.proj_save_pct))
 
-    # Save% must be based on saves/(saves+goals_against); already correct in bayes_save_pct
     sv_pct = max(starter.proj_save_pct, 0.35)
-    # Clamp to observed range: min ~0.46 (2022 WAT), max ~0.59 (2025 ARC)
     sv_pct = min(sv_pct, 0.72)
     starter.proj_saves = opp_sog * sv_pct
     starter.is_starter = True
@@ -2742,6 +2741,7 @@ def _assign_player_goalie_saves(
         if g.player_id != starter.player_id:
             g.proj_saves = 0.0
             g.is_starter = False
+            g.usage_multiplier = 0.0
 
 
 def _price_players(sims: List[PlayerSimulation], pricing: PricingEngine) -> Dict[str, Dict]:
