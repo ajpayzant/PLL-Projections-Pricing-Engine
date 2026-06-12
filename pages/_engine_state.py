@@ -165,6 +165,17 @@ def build_active_players() -> Dict:
     return out
 
 
+def build_starter_goalies() -> Dict:
+    """Return {team_id: player_id} for any team where a goalie starter was manually set."""
+    out: Dict = {}
+    for team_id, team_dc in st.session_state.depth_charts.items():
+        for pid, settings in team_dc.items():
+            if settings.get("is_starter"):
+                out[team_id] = pid
+                break  # only one starter per team
+    return out
+
+
 # -- Session save/restore --------------------------------------------------
 
 def session_to_json() -> str:
@@ -221,6 +232,7 @@ def run_projection_for_game(engine, game: Dict) -> Optional[ProjectionResult]:
         game_date=game.get("game_date"),
         player_overrides=build_overrides() or None,
         active_players=build_active_players() or None,
+        starter_goalies=build_starter_goalies() or None,
         team_rating_overrides=team_rating_overrides or None,
     )
     st.session_state.last_result = result
@@ -334,6 +346,7 @@ def run_selected_projection(
         game_date=game_date,
         player_overrides=build_overrides() or None,
         active_players=build_active_players() or None,
+        starter_goalies=build_starter_goalies() or None,
         team_rating_overrides=team_rating_overrides or None,
     )
 

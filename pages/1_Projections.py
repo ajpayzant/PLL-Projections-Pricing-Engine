@@ -21,7 +21,7 @@ from _engine_state import (
     card, fmt_prob, fmt_goals,
     get_engine, init_session,
     team_color, team_name,
-    build_overrides, build_active_players,
+    build_overrides, build_active_players, build_starter_goalies,
     get_team_rating_overrides, set_team_rating_override,
     sorted_upcoming, default_game_index,
     render_update_projection_btn,
@@ -271,6 +271,7 @@ if run_btn or st.session_state.last_result is None:
             game_date=game.get("game_date"),
             player_overrides=build_overrides() or None,
             active_players=build_active_players() or None,
+            starter_goalies=build_starter_goalies() or None,
             team_rating_overrides=team_rating_overrides or None,
         )
         st.session_state.last_result = result
