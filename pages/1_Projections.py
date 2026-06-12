@@ -249,7 +249,6 @@ with st.sidebar:
         try:
             json_str = uploaded.read().decode("utf-8")
             if session_from_json(json_str):
-                st.success("Session restored. Click Run Projection to reload.")
                 st.rerun()
             else:
                 st.error("File format not recognised.")
@@ -263,7 +262,8 @@ for tid in [home_id, away_id]:
     if ov:
         team_rating_overrides[tid] = ov
 
-if run_btn or st.session_state.last_result is None:
+auto_run = st.session_state.pop("_run_after_load", False)
+if run_btn or auto_run or st.session_state.last_result is None:
     with st.spinner("Running 20,000 simulations…"):
         result = engine.project(
             home_team_id=home_id,

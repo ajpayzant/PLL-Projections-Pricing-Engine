@@ -206,7 +206,17 @@ def session_from_json(json_str: str) -> bool:
             st.session_state["team_rating_overrides"] = payload["team_rating_overrides"]
         if "hold_pct" in payload:
             st.session_state["hold_pct"] = float(payload["hold_pct"])
-        # Clear stale result so app reruns projection with restored state
+
+        # Clear all team-rating widget keys so Streamlit re-seeds them from the
+        # restored team_rating_overrides values rather than the stale widget cache.
+        stale_keys = [k for k in st.session_state if k.startswith("tr_num_")
+                      or k.startswith("hold_num_") or k.startswith("pp_hold_num")]
+        for k in stale_keys:
+            del st.session_state[k]
+
+        # Signal the Projections page to auto-run after the rerun.
+        st.session_state["_run_after_load"] = True
+        # Clear stale result so projection reruns with restored state
         st.session_state["last_result"] = None
         return True
     except Exception:
